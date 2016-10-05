@@ -54,6 +54,12 @@
 #include "src/operator/elementwise_binary_scalar_op.cc"
 #include "src/operator/elementwise_unary_op.cc"
 #include "src/operator/embedding.cc"
+#include "src/operator/l2_normalization.cc"
+#include "src/operator/matrix_op.cc"
+#include "src/operator/multibox_detection.cc"
+#include "src/operator/multibox_prior.cc"
+#include "src/operator/scale.cc"
+#include "src/operator/softmax_activation.cc"
 #include "src/storage/storage.cc"
 
 #include "src/resource.cc"
