@@ -70,12 +70,12 @@ def proto2script(proto_file):
     elif len(proto.layers):
         layer = proto.layers
     else:
-        raise Exception('Invalid proto file.')   
+        raise Exception('Invalid proto file.')
     # Get input size to network
     input_dim = [1, 3, 224, 224] # default
     if len(proto.input_dim) > 0:
         input_dim = proto.input_dim
-    elif len(proto.input_shape) > 0: 
+    elif len(proto.input_shape) > 0:
         input_dim = proto.input_shape[0].dim
     # We assume the first bottom blob of first layer is the output from data layer
     input_name = layer[0].bottom[0]
@@ -98,6 +98,7 @@ def proto2script(proto_file):
             type_string = 'mx.symbol.Pooling'
             param = layer[i].pooling_param
             param_string = ''
+            param_string += "pooling_convention='full', "
             if param.global_pooling == True:
                 # there must be a param `kernel` in a pooling layer
                 param_string += "global_pool=True, kernel=(1,1)"
