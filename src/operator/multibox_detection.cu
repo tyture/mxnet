@@ -38,7 +38,7 @@ __global__ void MergePredictions(DType *out, const DType *cls_prob,
     const DType *p_cls_prob = cls_prob + n_batch * num_classes * num_anchors;
     const DType *p_loc_pred = loc_pred + n_batch * num_anchors * 4;
     DType *p_out = out + n_batch * num_anchors * 6;
-    DType score = p_cls_prob[n_anchor];
+    DType score = -1;
     int id = 0;
     for (int j = 1; j < num_classes; ++j) {
       DType temp = p_cls_prob[j * num_anchors + n_anchor];
