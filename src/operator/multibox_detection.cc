@@ -67,7 +67,7 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
     DType *p_out = out.dptr_ + nbatch * num_anchors * 6;
     for (index_t i = 0; i < num_anchors; ++i) {
       // find the predicted class id and probability
-      DType score = p_cls_prob[i];
+      DType score = -1;
       int id = 0;
       for (int j = 1; j < num_classes; ++j) {
         DType temp = p_cls_prob[j * num_anchors + i];
