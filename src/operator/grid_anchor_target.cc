@@ -65,15 +65,11 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
             && (anchor_y > gt_ymin) && (anchor_y < gt_ymax)) {
           if (cls_target[nbatch][0][j] == init_value) {
             // not marked, good to be a positive grid
-            DType gt_x = (gt_xmin + gt_xmax) / 2;
-            DType gt_y = (gt_ymin + gt_ymax) / 2;
-            DType gt_w = gt_xmax - gt_xmin;
-            DType gt_h = gt_ymax - gt_ymin;
             cls_target[nbatch][0][j] = cls_id + 1;  // 0 reserved for background
-            box_target[nbatch][0][j] = gt_x - anchor_x;  // x
-            box_target[nbatch][1][j] = gt_y - anchor_y;  // y
-            box_target[nbatch][2][j] = pow(gt_w, size_norm);  // width
-            box_target[nbatch][3][j] = pow(gt_h, size_norm);  // height
+            box_target[nbatch][0][j] = (gt_xmin - anchor_x) / size_norm;  // left
+            box_target[nbatch][1][j] = (gt_ymin - anchor_y) / size_norm;  // top
+            box_target[nbatch][2][j] = (gt_xmax - anchor_x) / size_norm;  // right
+            box_target[nbatch][3][j] = (gt_ymax - anchor_y) / size_norm;  // bottom
             box_mask[nbatch][0][j] = 1;
             box_mask[nbatch][1][j] = 1;
             box_mask[nbatch][2][j] = 1;

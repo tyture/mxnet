@@ -52,16 +52,12 @@ __global__ void MergePredictions(DType *out, const DType *cls_prob,
     }
     p_out[n_anchor * 6] = id - 1;  // restore original class id
     p_out[n_anchor * 6 + 1] = (id == 0 ? DType(-1) : score);
-    DType center_x = anchors[n_anchor];
-    DType center_y = anchors[n_anchor + num_spatial];
-    DType x = center_x + p_box_pred[n_anchor];
-    DType y = center_y + p_box_pred[n_anchor + num_spatial];
-    DType width = pow(p_box_pred[n_anchor + num_spatial * 2], size_norm) / 2;
-    DType height = pow(p_box_pred[n_anchor + num_spatial * 3], size_norm) / 2;
-    DType xmin = x - width;
-    DType ymin = y - height;
-    DType xmax = x + width;
-    DType ymax = y + height;
+    DType anchor_x = anchors[n_anchor];
+    DType anchor_y = anchors[n_anchor + num_spatial];
+    DType xmin = anchor_x + p_box_pred[n_anchor] * size_norm;
+    DType ymin = anchor_y + p_box_pred[n_anchor + num_spatial] * size_norm;
+    DType xmax = anchor_x + p_box_pred[n_anchor + num_spatial * 2] * size_norm;
+    DType ymax = anchor_y + p_box_pred[n_anchor + num_spatial * 3] * size_norm;
     if (clip) {
       Clip(&xmin, DType(0), DType(1));
       Clip(&ymin, DType(0), DType(1));
@@ -154,7 +150,7 @@ inline void GridAnchorDetectionForward(const Tensor<gpu, 3, DType> &out,
   int num_blocks = (num_samples - 1) / num_threads + 1;
   cuda::MergePredictions<<<num_blocks, num_threads>>>(out.dptr_, cls_prob.dptr_,
     box_pred.dptr_, anchors.dptr_, num_classes, num_spatial, num_batches,
-    threshold, clip, 1 / size_norm);
+    threshold, clip, size_norm);
   GRID_ANCHOR_DETECTION_CUDA_CHECK(cudaPeekAtLastError());
 }
 

@@ -35,7 +35,7 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
   DType *p_box_mask = box_mask + b * num_spatial * 4;
   DType anchor_x = anchors[l];
   DType anchor_y = anchors[l + num_spatial];
-  // if (b == 0) printf("anchor_x:%f, anchor_y:%f\n", float(anchor_x), float(anchor_y));
+
   for (int i = 0; i < num_labels; ++i) {
     if (p_label[i * 5] == DType(-1.f)) {
       break;
@@ -45,25 +45,16 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
     DType gt_ymin = p_label[i * 5 + 2];
     DType gt_xmax = p_label[i * 5 + 3];
     DType gt_ymax = p_label[i * 5 + 4];
-    // if (b == 31) {
-    //   printf("gt_xmin:%f, gt_ymin:%f, gt_xamx:%f, gt_ymax:%f, anchor_x:%f, anchor_y:%f\n",
-    //     float(gt_xmin), float(gt_ymin), float(gt_xmax), float(gt_ymax), float(anchor_x),
-    //     float(anchor_y));
-    // }
 
     if ((anchor_x > gt_xmin) && (anchor_x < gt_xmax)
         && (anchor_y > gt_ymin) && (anchor_y < gt_ymax)) {
       if (p_cls_target[l] == init_value) {
         // not marked, good to be a positive grid
-        DType gt_x = (gt_xmin + gt_xmax) / 2;
-        DType gt_y = (gt_ymin + gt_ymax) / 2;
-        DType gt_w = gt_xmax - gt_xmin;
-        DType gt_h = gt_ymax - gt_ymin;
         p_cls_target[l] = cls_id + 1;  // 0 reserved for background
-        p_box_target[l] = gt_x - anchor_x;  // x
-        p_box_target[l + num_spatial] = gt_y - anchor_y;  // y
-        p_box_target[l + 2 * num_spatial] = pow(gt_w, size_norm);  // width
-        p_box_target[l + 3 * num_spatial] = pow(gt_h, size_norm);  // height
+        p_box_target[l] = (gt_xmin - anchor_x) / size_norm;  // left
+        p_box_target[l + num_spatial] = (gt_ymin - anchor_y) / size_norm;  // top
+        p_box_target[l + 2 * num_spatial] = (gt_xmax - anchor_x) / size_norm;  // right
+        p_box_target[l + 3 * num_spatial] = (gt_ymax - anchor_y) / size_norm;  // bottom
         p_box_mask[l] = 1;
         p_box_mask[l + num_spatial] = 1;
         p_box_mask[l + 2 * num_spatial] = 1;

@@ -70,19 +70,18 @@ inline void GridAnchorDetectionForward(const Tensor<cpu, 3, DType> &out,
       // [id, prob, xmin, ymin, xmax, ymax]
       out[nbatch][count][0] = id - 1;  // remove background, restore original id
       out[nbatch][count][1] = (id == 0 ? DType(-1) : score);
-      DType center_x = anchors[0][0][i];
-      DType center_y = anchors[0][1][i];
-      DType x = center_x + box_pred[nbatch][0][i];
-      DType y = center_y + box_pred[nbatch][1][i];
-      DType width = pow(box_pred[nbatch][2][i], 1 / size_norm) / 2.;
-      DType height = pow(box_pred[nbatch][3][i], 1 / size_norm) / 2.;
-      // LOG(INFO) << center_x << ", " << center_y << ", " <<  width << ", " << height << ", " << score;
+      DType anchor_x = anchors[0][0][i];
+      DType anchor_y = anchors[0][1][i];
+      DType xmin = anchor_x + box_pred[nbatch][0][i] * size_norm;
+      DType ymin = anchor_y + box_pred[nbatch][1][i] * size_norm;
+      DType xmax = anchor_x + box_pred[nbatch][2][i] * size_norm;
+      DType ymax = anchor_y + box_pred[nbatch][3][i] * size_norm;
       DType lower = 0;
       DType upper = 1;
-      out[nbatch][count][2] = clip? Clip(x - width, lower, upper) : x - width;
-      out[nbatch][count][3] = clip? Clip(y - height, lower, upper) : y - height;
-      out[nbatch][count][4] = clip? Clip(x + width, lower, upper) : x + width;
-      out[nbatch][count][5] = clip? Clip(y + height, lower, upper) : y + height;
+      out[nbatch][count][2] = clip? Clip(xmin, lower, upper) : xmin;
+      out[nbatch][count][3] = clip? Clip(ymin, lower, upper) : ymin;
+      out[nbatch][count][4] = clip? Clip(xmax, lower, upper) : xmax;
+      out[nbatch][count][5] = clip? Clip(ymax, lower, upper) : ymax;
       ++count;
     }
   }
