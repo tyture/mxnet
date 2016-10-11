@@ -22,7 +22,8 @@ template<typename DType>
 __global__ void GridFindMatches(DType *cls_target, DType *box_target,
                             DType *box_mask, const DType *anchors,
                             const DType *labels, float ignore_label,
-                            int num_batches, int num_labels, int num_spatial) {
+                            int num_batches, int num_labels, int num_spatial,
+                            float size_norm) {
   const float init_value = ignore_label - 1;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_batches * num_spatial) return;
@@ -61,8 +62,8 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
         p_cls_target[l] = cls_id + 1;  // 0 reserved for background
         p_box_target[l] = gt_x - anchor_x;  // x
         p_box_target[l + num_spatial] = gt_y - anchor_y;  // y
-        p_box_target[l + 2 * num_spatial] = sqrt(gt_w);  // width
-        p_box_target[l + 3 * num_spatial] = sqrt(gt_h);  // height
+        p_box_target[l + 2 * num_spatial] = pow(gt_w, size_norm);  // width
+        p_box_target[l + 3 * num_spatial] = pow(gt_h, size_norm);  // height
         p_box_mask[l] = 1;
         p_box_mask[l + num_spatial] = 1;
         p_box_mask[l + 2 * num_spatial] = 1;
@@ -226,7 +227,8 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
                            const Tensor<gpu, 3, DType> &temp_space,
                            float ignore_label,
                            float negative_mining_ratio,
-                           int minimum_negative_samples) {
+                           int minimum_negative_samples,
+                           float size_norm) {
   // checks
   CHECK_EQ(anchors.CheckContiguous(), true);
   CHECK_EQ(labels.CheckContiguous(), true);
@@ -249,7 +251,7 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
   num_blocks = (num_batches * num_spatial - 1) / num_threads + 1;
   cuda::GridFindMatches<DType><<<num_blocks, num_threads>>>(cls_target.dptr_,
     box_target.dptr_, box_mask.dptr_, anchors.dptr_, labels.dptr_, ignore_label,
-    num_batches, num_labels, num_spatial);
+    num_batches, num_labels, num_spatial, size_norm);
   GRID_ANCHOR_TARGET_CUDA_CHECK(cudaPeekAtLastError());
 
   // cuda::PrintOutput<DType><<<1,1>>>(cls_target.dptr_, num_spatial);

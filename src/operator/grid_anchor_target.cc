@@ -33,7 +33,8 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
                            const Tensor<cpu, 3, DType> &temp_space,
                            float ignore_label,
                            float negative_mining_ratio,
-                           int minimum_negative_samples) {
+                           int minimum_negative_samples,
+                           float size_norm) {
   for (index_t nbatch = 0; nbatch < labels.size(0); ++nbatch) {
     index_t num_valid_gt = 0;
     for (index_t i = 0; i < labels.size(1); ++i) {
@@ -71,8 +72,8 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
             cls_target[nbatch][0][j] = cls_id + 1;  // 0 reserved for background
             box_target[nbatch][0][j] = gt_x - anchor_x;  // x
             box_target[nbatch][1][j] = gt_y - anchor_y;  // y
-            box_target[nbatch][2][j] = sqrtf(gt_w);  // width
-            box_target[nbatch][3][j] = sqrtf(gt_h);  // height
+            box_target[nbatch][2][j] = pow(gt_w, size_norm);  // width
+            box_target[nbatch][3][j] = pow(gt_h, size_norm);  // height
             box_mask[nbatch][0][j] = 1;
             box_mask[nbatch][1][j] = 1;
             box_mask[nbatch][2][j] = 1;

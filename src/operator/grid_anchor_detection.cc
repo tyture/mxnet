@@ -47,7 +47,8 @@ inline void GridAnchorDetectionForward(const Tensor<cpu, 3, DType> &out,
                                      const Tensor<cpu, 3, DType> &cls_prob,
                                      const Tensor<cpu, 3, DType> &box_pred,
                                      const Tensor<cpu, 3, DType> &anchors,
-                                     float threshold, bool clip) {
+                                     float threshold, bool clip,
+                                     float size_norm) {
   using namespace griddet_util;
   index_t num_classes = cls_prob.size(1);
   index_t num_spatial = cls_prob.size(2);
@@ -73,8 +74,8 @@ inline void GridAnchorDetectionForward(const Tensor<cpu, 3, DType> &out,
       DType center_y = anchors[0][1][i];
       DType x = center_x + box_pred[nbatch][0][i];
       DType y = center_y + box_pred[nbatch][1][i];
-      DType width = pow(box_pred[nbatch][2][i], 2) / 2.;
-      DType height = pow(box_pred[nbatch][3][i], 2) / 2.;
+      DType width = pow(box_pred[nbatch][2][i], 1 / size_norm) / 2.;
+      DType height = pow(box_pred[nbatch][3][i], 1 / size_norm) / 2.;
       // LOG(INFO) << center_x << ", " << center_y << ", " <<  width << ", " << height << ", " << score;
       DType lower = 0;
       DType upper = 1;

@@ -28,7 +28,8 @@ template<typename DType>
 __global__ void MergePredictions(DType *out, const DType *cls_prob,
                                  const DType *box_pred, const DType *anchors,
                                  int num_classes, int num_spatial,
-                                 int num_batches, float threshold, bool clip) {
+                                 int num_batches, float threshold, bool clip,
+                                 float size_norm) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_batches * num_spatial) return;
   for (int i = index; i < num_batches * num_spatial; i += blockDim.x * gridDim.x) {
@@ -55,10 +56,8 @@ __global__ void MergePredictions(DType *out, const DType *cls_prob,
     DType center_y = anchors[n_anchor + num_spatial];
     DType x = center_x + p_box_pred[n_anchor];
     DType y = center_y + p_box_pred[n_anchor + num_spatial];
-    DType width = pow(p_box_pred[n_anchor + num_spatial * 2], 2) / 2;
-    DType height = pow(p_box_pred[n_anchor + num_spatial * 3], 2) / 2;
-    // printf("%f, %f, %f, %f, %f\n", float(center_x), float(center_y), float(width),
-    //   float(height), float(score));
+    DType width = pow(p_box_pred[n_anchor + num_spatial * 2], size_norm) / 2;
+    DType height = pow(p_box_pred[n_anchor + num_spatial * 3], size_norm) / 2;
     DType xmin = x - width;
     DType ymin = y - height;
     DType xmax = x + width;
@@ -145,7 +144,8 @@ inline void GridAnchorDetectionForward(const Tensor<gpu, 3, DType> &out,
                                      const Tensor<gpu, 3, DType> &cls_prob,
                                      const Tensor<gpu, 3, DType> &box_pred,
                                      const Tensor<gpu, 3, DType> &anchors,
-                                     float threshold, bool clip) {
+                                     float threshold, bool clip,
+                                     float size_norm) {
   int num_classes = cls_prob.size(1);
   int num_spatial = cls_prob.size(2);
   int num_batches = cls_prob.size(0);
@@ -154,7 +154,7 @@ inline void GridAnchorDetectionForward(const Tensor<gpu, 3, DType> &out,
   int num_blocks = (num_samples - 1) / num_threads + 1;
   cuda::MergePredictions<<<num_blocks, num_threads>>>(out.dptr_, cls_prob.dptr_,
     box_pred.dptr_, anchors.dptr_, num_classes, num_spatial, num_batches,
-    threshold, clip);
+    threshold, clip, 1 / size_norm);
   GRID_ANCHOR_DETECTION_CUDA_CHECK(cudaPeekAtLastError());
 }
 

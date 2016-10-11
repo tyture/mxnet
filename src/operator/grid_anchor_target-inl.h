@@ -30,6 +30,7 @@ struct GridAnchorTargetParam : public dmlc::Parameter<GridAnchorTargetParam> {
   float ignore_label;
   float negative_mining_ratio;
   int minimum_negative_samples;
+  float size_norm;
   DMLC_DECLARE_PARAMETER(GridAnchorTargetParam) {
     DMLC_DECLARE_FIELD(ignore_label).set_default(-1.0f)
     .describe("Label for ignored anchors.");
@@ -37,6 +38,9 @@ struct GridAnchorTargetParam : public dmlc::Parameter<GridAnchorTargetParam> {
     .describe("Max negative to positive samples ratio, use -1 to disable mining");
     DMLC_DECLARE_FIELD(minimum_negative_samples).set_default(0)
     .describe("Minimum number of negative samples.");
+    DMLC_DECLARE_FIELD(size_norm).set_default(1.f)
+    .describe("Size (width and height) norm. Must equals to the one used "
+    "in detection layer.");
   }
 };  // struct GridAnchorTargetParam
 
@@ -90,7 +94,8 @@ class GridAnchorTargetOp : public Operator {
                           anchors, labels, cls_preds, temp_space,
                           param_.ignore_label,
                           param_.negative_mining_ratio,
-                          param_.minimum_negative_samples);
+                          param_.minimum_negative_samples,
+                          param_.size_norm);
   }
 
   virtual void Backward(const OpContext &ctx,

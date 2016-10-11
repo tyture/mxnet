@@ -30,6 +30,7 @@ struct GridAnchorDetectionParam : public dmlc::Parameter<GridAnchorDetectionPara
   float threshold;
   float nms_threshold;
   bool force_suppress;
+  float size_norm;
   DMLC_DECLARE_PARAMETER(GridAnchorDetectionParam) {
     DMLC_DECLARE_FIELD(clip).set_default(true)
     .describe("Clip out-of-boundary boxes.");
@@ -39,6 +40,9 @@ struct GridAnchorDetectionParam : public dmlc::Parameter<GridAnchorDetectionPara
     .describe("Non-maximum suppression threshold.");
     DMLC_DECLARE_FIELD(force_suppress).set_default(false)
     .describe("Suppress all detections regardless of class_id.");
+    DMLC_DECLARE_FIELD(size_norm).set_default(1.f)
+    .describe("Size (width and height) norm. Must equals to the one used "
+    "in loss function to restore the correct size.");
   }
 };  // struct GridAnchorDetectionParam
 
@@ -78,7 +82,7 @@ class GridAnchorDetectionOp : public Operator {
        .get_space_typed<xpu, 3, DType>(out.shape_, s);
 
      GridAnchorDetectionForward(out, cls_prob, box_pred, anchors,
-       param_.threshold, param_.clip);
+       param_.threshold, param_.clip, param_.size_norm);
      GridAnchorNonMaximumSuppression(out, temp_space, param_.nms_threshold,
        param_.force_suppress);
   }
