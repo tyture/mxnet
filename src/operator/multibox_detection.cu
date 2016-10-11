@@ -189,6 +189,7 @@ inline void NonMaximumSuppression(const Tensor<gpu, 3, DType> &out,
       dst = dst == src_ptr? dst_ptr : src_ptr;
     }
   }
+  Copy(out, temp_space, temp_space.stream_);
   // apply nms
   num_blocks = (num_anchors - 1) / num_threads + 1;
   for (int nbatch = 0; nbatch < out.size(0); ++nbatch) {
