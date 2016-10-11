@@ -29,12 +29,12 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
   int b = index / num_spatial;
   int l = index % num_spatial;
   const DType *p_label = labels + b * num_labels * 5;
-  const DType *p_anchor = anchors + b * num_spatial * 2;
   DType *p_cls_target = cls_target + b * num_spatial;
   DType *p_box_target = box_target + b * num_spatial * 4;
   DType *p_box_mask = box_mask + b * num_spatial * 4;
-  DType anchor_x = p_anchor[l];
-  DType anchor_y = p_anchor[l + num_spatial];
+  DType anchor_x = anchors[l];
+  DType anchor_y = anchors[l + num_spatial];
+  // if (b == 0) printf("anchor_x:%f, anchor_y:%f\n", float(anchor_x), float(anchor_y));
   for (int i = 0; i < num_labels; ++i) {
     if (p_label[i * 5] == DType(-1.f)) {
       break;
@@ -44,7 +44,13 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
     DType gt_ymin = p_label[i * 5 + 2];
     DType gt_xmax = p_label[i * 5 + 3];
     DType gt_ymax = p_label[i * 5 + 4];
-    if ((anchor_x > gt_xmax) && (anchor_x < gt_xmax)
+    // if (b == 31) {
+    //   printf("gt_xmin:%f, gt_ymin:%f, gt_xamx:%f, gt_ymax:%f, anchor_x:%f, anchor_y:%f\n",
+    //     float(gt_xmin), float(gt_ymin), float(gt_xmax), float(gt_ymax), float(anchor_x),
+    //     float(anchor_y));
+    // }
+
+    if ((anchor_x > gt_xmin) && (anchor_x < gt_xmax)
         && (anchor_y > gt_ymin) && (anchor_y < gt_ymax)) {
       if (p_cls_target[l] == init_value) {
         // not marked, good to be a positive grid
@@ -112,6 +118,7 @@ __global__ void GridNegativeMining(DType *cls_target, DType *temp_space,
     if (num_neg > (num_spatial - num_pos - num_ignore)) {
       num_neg = num_spatial - num_pos - num_ignore;
     }
+    // printf("Pos: %d, ignore; %d, neg: %d\n", num_pos, num_ignore, num_neg);
   }
   __syncthreads();
 
@@ -200,6 +207,13 @@ __global__ void GridUseAllNegatives(DType *cls_target, float ignore_label,
     cls_target[idx] = 0;
   }
 }
+
+template<typename DType>
+__global__ void PrintOutput(DType *ptr, int num) {
+  for (int i = 0; i < num; ++i) {
+    printf("%d: %f, ", i, float(ptr[i]));
+  }
+}
 }  // namespace cuda
 
 template<typename DType>
@@ -237,6 +251,8 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
     box_target.dptr_, box_mask.dptr_, anchors.dptr_, labels.dptr_, ignore_label,
     num_batches, num_labels, num_spatial);
   GRID_ANCHOR_TARGET_CUDA_CHECK(cudaPeekAtLastError());
+
+  // cuda::PrintOutput<DType><<<1,1>>>(cls_target.dptr_, num_spatial);
 
   // assign negative targets
   if (negative_mining_ratio > 0) {

@@ -60,7 +60,7 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
         DType gt_ymin = labels[nbatch][i][2];
         DType gt_xmax = labels[nbatch][i][3];
         DType gt_ymax = labels[nbatch][i][4];
-        if ((anchor_x > gt_xmax) && (anchor_x < gt_xmax)
+        if ((anchor_x > gt_xmin) && (anchor_x < gt_xmax)
             && (anchor_y > gt_ymin) && (anchor_y < gt_ymax)) {
           if (cls_target[nbatch][0][j] == init_value) {
             // not marked, good to be a positive grid

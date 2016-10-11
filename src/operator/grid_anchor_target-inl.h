@@ -58,21 +58,22 @@ class GridAnchorTargetOp : public Operator {
     Stream<xpu> *s = ctx.get_stream<xpu>();
     // get all tensors with spatially compressed to 1d
     TShape ashape = in_data[gridtarget_enum::kAnchor].shape_;
-    Shape<3> tshape = Shape3(ashape[0], 2, ashape.ProdShape(2, ashape.ndim()));
+    Shape<3> tshape = Shape3(1, 2, ashape.ProdShape(2, ashape.ndim()));
     Tensor<xpu, 3, DType> anchors = in_data[gridtarget_enum::kAnchor]
       .get_with_shape<xpu, 3, DType>(tshape, s);
     Tensor<xpu, 3, DType> labels = in_data[gridtarget_enum::kLabel]
       .get<xpu, 3, DType>(s);
+    tshape[0] = in_data[gridtarget_enum::kClsPred].size(0);
     tshape[1] = in_data[gridtarget_enum::kClsPred].size(1);
     Tensor<xpu, 3, DType> cls_preds = in_data[gridtarget_enum::kClsPred]
       .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = in_data[gridtarget_enum::kBox].size(1);
+    tshape[1] = out_data[gridtarget_enum::kBox].size(1);
     Tensor<xpu, 3, DType> box_target = out_data[gridtarget_enum::kBox]
       .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = in_data[gridtarget_enum::kBoxMask].size(1);
+    tshape[1] = out_data[gridtarget_enum::kBoxMask].size(1);
     Tensor<xpu, 3, DType> box_mask = out_data[gridtarget_enum::kBoxMask]
       .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = in_data[gridtarget_enum::kCls].size(1);
+    tshape[1] = out_data[gridtarget_enum::kCls].size(1);
     Tensor<xpu, 3, DType> cls_target = out_data[gridtarget_enum::kCls]
       .get_with_shape<xpu, 3, DType>(tshape, s);
     tshape[1] = 4;
@@ -152,11 +153,11 @@ class GridAnchorTargetProp : public OperatorProperty {
     CHECK_GE(pshape[1], 2) << "Class number must >= 1";
     CHECK_EQ(pshape[2], ashape[2]) << "Anchor/Prediction height mismatch";
     CHECK_EQ(pshape[3], ashape[3]) << "Anchor/Prediction width mismatch";
-    TShape box_shape = ashape;
+    TShape box_shape = pshape;
     box_shape[1] = 4;  // delta_x, delta_y, width, height
     TShape mask_shape = box_shape;
-    TShape label_shape = ashape;
-    label_shape[1] = 1;  // class label
+    TShape label_shape = pshape;
+    label_shape[1] = 1;
     out_shape->clear();
     out_shape->push_back(box_shape);
     out_shape->push_back(mask_shape);

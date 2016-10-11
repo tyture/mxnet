@@ -37,7 +37,7 @@ __global__ void AssignAnchors(DType *out, int in_width, int in_height,
 template<typename DType>
 __global__ void PrintOutput(DType *ptr, int num) {
   for (int i = 0; i < num; ++i) {
-    printf("%d: %f, ", ptr[i]);
+    printf("%d: %f, ", i, float(ptr[i]));
   }
 }
 }  // namespace cuda
@@ -59,10 +59,10 @@ inline void GridAnchorForward(const Tensor<gpu, 3, DType> &out,
     in_width, in_height, step_x, step_y);
   GRIDANCHOR_CUDA_CHECK(cudaPeekAtLastError());
 
-  cuda::PrintOutput<DType><<<1,1>>>(out.dptr_, in_width * in_height);
-  LOG(INFO) << "Y:";
-  cuda::PrintOutput<DType><<<1,1>>>(out.dptr_ + in_width * in_height,
-    in_width * in_height);
+  // cuda::PrintOutput<DType><<<1,1>>>(out.dptr_, in_width * in_height);
+  // LOG(INFO) << "Y:";
+  // cuda::PrintOutput<DType><<<1,1>>>(out.dptr_ + in_width * in_height,
+  //   in_width * in_height);
 }
 }  // namespace mshadow
 
