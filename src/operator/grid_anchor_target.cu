@@ -19,11 +19,27 @@
 namespace mshadow {
 namespace cuda {
 template<typename DType>
+__device__ void Distance(DType *dist, DType x1, DType y1, DType x2, DType y2) {
+  DType dx = x1 - x2;
+  DType dy = y1 - y2;
+  *dist = sqrt(dx * dx + dy * dy);
+}
+
+template<typename DType>
+__device__ void DistanceToCenter(DType *dist, DType x, DType y, DType left, DType top,
+                              DType right, DType bottom) {
+  DType x2 = (left + right) / 2;
+  DType y2 = (top + bottom) / 2;
+  Distance(dist, x, y, x2, y2);
+}
+
+template<typename DType>
 __global__ void GridFindMatches(DType *cls_target, DType *box_target,
                             DType *box_mask, const DType *anchors,
                             const DType *labels, float ignore_label,
                             int num_batches, int num_labels, int num_spatial,
-                            float size_norm) {
+                            float size_norm, float core_area,
+                            float buffer_area, bool absolute_area) {
   const float init_value = ignore_label - 1;
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_batches * num_spatial) return;
@@ -46,8 +62,25 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
     DType gt_xmax = p_label[i * 5 + 3];
     DType gt_ymax = p_label[i * 5 + 4];
 
-    if ((anchor_x > gt_xmin) && (anchor_x < gt_xmax)
-        && (anchor_y > gt_ymin) && (anchor_y < gt_ymax)) {
+    if (anchor_x < gt_xmin || anchor_x > gt_xmax ||
+        anchor_y < gt_ymin || anchor_y > gt_ymax) {
+      continue;
+    }
+
+    // calculate decision areas
+    float base_size = 1.f;
+    if (!absolute_area) {
+      float gt_width = gt_xmax - gt_xmin;
+      float gt_height = gt_ymax - gt_ymin;
+      base_size = gt_width < gt_height ? gt_width : gt_height;
+    }
+    float core_size = base_size * core_area;
+    float buffer_size = base_size * buffer_area;
+    DType dist;
+    DistanceToCenter(&dist, anchor_x, anchor_y, gt_xmin, gt_ymin,
+      gt_xmax, gt_ymax);
+    
+    if (dist < core_size) {
       if (p_cls_target[l] == init_value) {
         // not marked, good to be a positive grid
         p_cls_target[l] = cls_id + 1;  // 0 reserved for background
@@ -72,6 +105,16 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
         p_box_mask[l + 2 * num_spatial] = 0;
         p_box_mask[l + 3 * num_spatial] = 0;
       }
+    } else if (dist < buffer_size) {
+      p_cls_target[l] = ignore_label;
+      p_box_target[l] = 0;
+      p_box_target[l + num_spatial] = 0;
+      p_box_target[l + 2 * num_spatial] = 0;
+      p_box_target[l + 3 * num_spatial] = 0;
+      p_box_mask[l] = 0;
+      p_box_mask[l + num_spatial] = 0;
+      p_box_mask[l + 2 * num_spatial] = 0;
+      p_box_mask[l + 3 * num_spatial] = 0;
     }
   }
 }
@@ -89,10 +132,8 @@ __global__ void GridNegativeMining(DType *cls_target, DType *temp_space,
   cls_preds += nbatch * num_classes * num_spatial;
   const int num_threads = WARPS_PER_BLOCK * THREADS_PER_WARP;
   __shared__ int num_neg;
-  __shared__ int count;
 
   if (threadIdx.x == 0) {
-    count = 0;
     // check number of negatives to assign
     int num_pos = 0;
     int num_ignore = 0;
@@ -114,9 +155,9 @@ __global__ void GridNegativeMining(DType *cls_target, DType *temp_space,
   }
   __syncthreads();
 
-  DType init_value = ignore_label - 1;
+  // DType init_value = ignore_label - 1;
   for (int i = threadIdx.x; i < num_spatial; i += num_threads) {
-    if (cls_target[i] == init_value) {
+    if (cls_target[i] < ignore_label) {
       // calculate class prodictions
       DType max_val = cls_preds[i];
       DType max_val_pos = cls_preds[i + num_spatial];
@@ -131,33 +172,33 @@ __global__ void GridNegativeMining(DType *cls_target, DType *temp_space,
         sum += exp(tmp - max_val);
       }
       max_val_pos = exp(max_val_pos - max_val) / sum;
-      // use buffer to store temporal score and index
-      temp_space[count] = max_val_pos;  // score
-      temp_space[count + num_spatial] = i;  // index
-      ++count;
+      // use buffer to store temporal score
+      temp_space[i] = max_val_pos;  // score
+    } else {
+      temp_space[i] = -1;
     }
   }
   __syncthreads();
 
   // merge sort
-  DType *index_src = temp_space + num_spatial * 2;
-  DType *index_dst = temp_space + num_spatial * 3;
+  DType *index_src = temp_space + num_spatial;
+  DType *index_dst = temp_space + num_spatial * 2;
   DType *src = index_src;
   DType *dst = index_dst;
-  for (int i = threadIdx.x; i < count; i += num_threads) {
+  for (int i = threadIdx.x; i < num_spatial; i += num_threads) {
     index_src[i] = i;
   }
   __syncthreads();
 
-  for (int width = 2; width < (count << 1); width <<= 1) {
-    int slices = (count - 1) / (num_threads * width) + 1;
+  for (int width = 2; width < (num_spatial << 1); width <<= 1) {
+    int slices = (num_spatial - 1) / (num_threads * width) + 1;
     int start = width * threadIdx.x * slices;
     for (int slice = 0; slice < slices; ++slice) {
-      if (start >= count) break;
+      if (start >= num_spatial) break;
       int middle = start + (width >> 1);
-      if (count < middle) middle = count;
+      if (num_spatial < middle) middle = num_spatial;
       int end = start + width;
-      if (count < end) end = count;
+      if (num_spatial < end) end = num_spatial;
       int i = start;
       int j = middle;
       for (int k = start; k < end; ++k) {
@@ -180,12 +221,14 @@ __global__ void GridNegativeMining(DType *cls_target, DType *temp_space,
   }
   __syncthreads();
 
-  for (int i = threadIdx.x; i < count; i += num_threads) {
-    int idx = static_cast<int>(temp_space[num_spatial + static_cast<int>(src[i])]);
+  for (int i = threadIdx.x; i < num_spatial; i += num_threads) {
+    int idx = static_cast<int>(src[i]);
     if (i < num_neg) {
       cls_target[idx] = 0;
     } else {
-      cls_target[idx] = ignore_label;
+      if (cls_target[idx] < 0) {
+        cls_target[idx] = ignore_label;
+      }
     }
   }
 }
@@ -203,7 +246,8 @@ __global__ void GridUseAllNegatives(DType *cls_target, float ignore_label,
 template<typename DType>
 __global__ void PrintOutput(DType *ptr, int num) {
   for (int i = 0; i < num; ++i) {
-    printf("%d: %f, ", i, float(ptr[i]));
+    if (float(ptr[i]) == -1) continue;
+    printf("%d: %f\n", i, float(ptr[i]));
   }
 }
 }  // namespace cuda
@@ -219,7 +263,8 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
                            float ignore_label,
                            float negative_mining_ratio,
                            int minimum_negative_samples,
-                           float size_norm) {
+                           float size_norm, float core_area,
+                           float buffer_area, bool absolute_area) {
   // checks
   CHECK_EQ(anchors.CheckContiguous(), true);
   CHECK_EQ(labels.CheckContiguous(), true);
@@ -234,6 +279,10 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
   CHECK_GE(num_batches, 1);
   CHECK_GE(num_labels, 1);
   CHECK_GE(num_spatial, 1);
+  CHECK_GE(core_area, 0);
+  CHECK_LE(core_area, 1);
+  if (buffer_area < core_area) buffer_area = core_area;
+  CHECK_LE(buffer_area, 1);
 
   const int num_threads = THREADS_PER_WARP * WARPS_PER_BLOCK;
   int num_blocks;
@@ -242,10 +291,9 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
   num_blocks = (num_batches * num_spatial - 1) / num_threads + 1;
   cuda::GridFindMatches<DType><<<num_blocks, num_threads>>>(cls_target.dptr_,
     box_target.dptr_, box_mask.dptr_, anchors.dptr_, labels.dptr_, ignore_label,
-    num_batches, num_labels, num_spatial, size_norm);
+    num_batches, num_labels, num_spatial, size_norm, core_area, buffer_area,
+    absolute_area);
   GRID_ANCHOR_TARGET_CUDA_CHECK(cudaPeekAtLastError());
-
-  // cuda::PrintOutput<DType><<<1,1>>>(cls_target.dptr_, num_spatial);
 
   // assign negative targets
   if (negative_mining_ratio > 0) {
@@ -260,6 +308,8 @@ inline void GridAnchorTargetForward(const Tensor<gpu, 3, DType> &box_target,
       ignore_label, num_batches, num_spatial);
     GRID_ANCHOR_TARGET_CUDA_CHECK(cudaPeekAtLastError());
   }
+
+  // cuda::PrintOutput<DType><<<1,1>>>(cls_target.dptr_, num_spatial);
 }
 }  // namespace mshadow
 

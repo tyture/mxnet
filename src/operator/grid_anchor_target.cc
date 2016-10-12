@@ -9,6 +9,7 @@
 #include <algorithm>
 
 namespace mshadow {
+namespace gridtarget_util {
 struct SortElemDescend {
   float value;
   int index;
@@ -24,6 +25,22 @@ struct SortElemDescend {
 };
 
 template<typename DType>
+inline DType Distance(DType x1, DType y1, DType x2, DType y2) {
+  DType dx = x1 - x2;
+  DType dy = y1 - y2;
+  return sqrt(dx * dx + dy * dy);
+}
+
+template<typename DType>
+inline DType DistanceToCenter(DType x, DType y, DType left, DType top,
+                              DType right, DType bottom) {
+  DType x2 = (left + right) / 2;
+  DType y2 = (top + bottom) / 2;
+  return Distance(x, y, x2, y2);
+}
+}  // namespace gridtarget_util
+
+template<typename DType>
 inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
                            const Tensor<cpu, 3, DType> &box_mask,
                            const Tensor<cpu, 3, DType> &cls_target,
@@ -34,7 +51,13 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
                            float ignore_label,
                            float negative_mining_ratio,
                            int minimum_negative_samples,
-                           float size_norm) {
+                           float size_norm, float core_area,
+                           float buffer_area, bool absolute_area) {
+  using namespace gridtarget_util;
+  CHECK_GE(core_area, 0);
+  CHECK_LE(core_area, 1);
+  if (buffer_area < core_area) buffer_area = core_area;
+  CHECK_LE(buffer_area, 1);
   for (index_t nbatch = 0; nbatch < labels.size(0); ++nbatch) {
     index_t num_valid_gt = 0;
     for (index_t i = 0; i < labels.size(1); ++i) {
@@ -61,8 +84,23 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
         DType gt_ymin = labels[nbatch][i][2];
         DType gt_xmax = labels[nbatch][i][3];
         DType gt_ymax = labels[nbatch][i][4];
-        if ((anchor_x > gt_xmin) && (anchor_x < gt_xmax)
-            && (anchor_y > gt_ymin) && (anchor_y < gt_ymax)) {
+
+        if (anchor_x < gt_xmin || anchor_x > gt_xmax ||
+            anchor_y < gt_ymin || anchor_y > gt_ymax) {
+          continue;
+        }
+
+        // calculate decision areas
+        float base_size = 1.f;
+        if (!absolute_area) {
+          base_size = std::min(gt_xmax - gt_xmin, gt_ymax - gt_ymin);
+        }
+        float core_size = base_size * core_area;
+        float buffer_size = base_size * buffer_area;
+        DType dist = DistanceToCenter(anchor_x, anchor_y, gt_xmin, gt_ymin,
+          gt_xmax, gt_ymax);
+
+        if (dist < core_size) {
           if (cls_target[nbatch][0][j] == init_value) {
             // not marked, good to be a positive grid
             cls_target[nbatch][0][j] = cls_id + 1;  // 0 reserved for background
@@ -90,6 +128,21 @@ inline void GridAnchorTargetForward(const Tensor<cpu, 3, DType> &box_target,
             --num_pos;
             ++num_ignore;
           }
+        } else if (dist < buffer_size) {
+          // in buffer zone, mark as ignore
+          if (cls_target[nbatch][0][j] > 0) {
+            --num_pos;
+          }
+          cls_target[nbatch][0][j] = ignore_label;
+          box_target[nbatch][0][j] = 0;
+          box_target[nbatch][1][j] = 0;
+          box_target[nbatch][2][j] = 0;
+          box_target[nbatch][3][j] = 0;
+          box_mask[nbatch][0][j] = 0;
+          box_mask[nbatch][1][j] = 0;
+          box_mask[nbatch][2][j] = 0;
+          box_mask[nbatch][3][j] = 0;
+          ++num_ignore;
         }
       }  // end iterate spatial
     }  // end iterate labels
