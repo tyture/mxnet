@@ -55,21 +55,16 @@ inline void MultiBoxPriorForward(const Tensor<gpu, 2, DType> &out,
   dim3 thread_dim(num_thread);
   dim3 block_dim((in_width * in_height - 1) / num_thread + 1);
 
-  int stride = 4 * (num_sizes + num_ratios - 1);
+  int stride = 4 * num_sizes * num_ratios;
   int offset = 0;
-  // ratio = 1, various sizes
   for (int i = 0; i < num_sizes; ++i) {
-    cuda::AssignPriors<DType><<<block_dim, thread_dim, 0, stream>>>(out_ptr,
-      sizes[i], 1.f, in_width, in_height, step_x, step_y, stride, offset);
-    ++offset;
-  }
-  MULTIBOXPRIOR_CUDA_CHECK(cudaPeekAtLastError());
-
-  // size = sizes[0], various ratios
-  for (int j = 1; j < num_ratios; ++j) {
-    cuda::AssignPriors<DType><<<block_dim, thread_dim, 0, stream>>>(out_ptr,
-      sizes[0], sqrtf(ratios[j]), in_width, in_height, step_x, step_y, stride, offset);
-    ++offset;
+    float size = sizes[i];
+    for (int j = 0; j < num_ratios; ++j) {
+      float ratio = sqrtf(ratios[j]);
+      cuda::AssignPriors<DType><<<block_dim, thread_dim, 0, stream>>>(out_ptr,
+        size, ratio, in_width, in_height, step_x, step_y, stride, offset);
+      ++offset;
+    }
   }
   MULTIBOXPRIOR_CUDA_CHECK(cudaPeekAtLastError());
 }

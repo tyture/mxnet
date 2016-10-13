@@ -150,7 +150,7 @@ class MultiBoxPriorOp : public Operator {
     // since input sizes are same in each batch, we could share MultiBoxPrior
     int num_sizes = static_cast<int>(sizes_.size());
     int num_ratios = static_cast<int>(ratios_.size());
-    int num_anchors = num_sizes - 1 + num_ratios;  // anchors per location
+    int num_anchors = num_sizes * num_ratios;  // anchors per location
     Shape<2> oshape = Shape2(num_anchors * in_width * in_height, 4);
     out = out_data[mboxprior_enum::kOut].get_with_shape<xpu, 2, DType>(oshape, s);
     MultiBoxPriorForward(out, sizes_, ratios_, in_width, in_height);
@@ -214,7 +214,7 @@ class MultiBoxPriorProp: public OperatorProperty {
     int num_sizes = param_.sizes.info.size();
     int num_ratios = param_.ratios.info.size();
     oshape[0] = 1;
-    oshape[1] = in_height * in_width * (num_sizes + num_ratios - 1);
+    oshape[1] = in_height * in_width * num_sizes * num_ratios;
     oshape[2] = 4;
     out_shape->clear();
     out_shape->push_back(oshape);
