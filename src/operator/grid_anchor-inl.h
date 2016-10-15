@@ -21,16 +21,102 @@
 namespace mxnet {
 namespace op {
 
+namespace mshadow_op {
+struct clip_zero_one {
+  template<typename DType>
+  MSHADOW_XINLINE static DType Map(DType a) {
+    if (a < 0.f) return DType(0.f);
+    if (a > 1.f) return DType(1.f);
+    return DType(a);
+  }
+};  // struct clip_zero_one
+}  // namespace mshadow_op
+
 namespace gridanchor_enum {
 enum GridAnchorOpInputs {kData};
 enum GridAnchorOpOutputs {kOut};
 }  // namespace gridanchor_enum
 
+struct SizeInfo {
+  SizeInfo() {}
+  explicit SizeInfo(std::vector<float> in) : info(in) {}
+
+  std::vector<float> info;
+};  // struct SizeInfo
+
+inline std::istream &operator>>(std::istream &is, SizeInfo &size) {
+  while (true) {
+    char ch = is.get();
+    if (ch == '(') break;
+    if (!isspace(ch)) {
+      is.setstate(std::ios::failbit);
+      return is;
+    }
+  }
+  float f;
+  std::vector<float> tmp;
+  // deal with empty case
+  // safe to remove after stop using target_size
+  size_t pos = is.tellg();
+  char ch = is.get();
+  if (ch == ')') {
+    size.info = tmp;
+    return is;
+  }
+  is.seekg(pos);
+  // finish deal
+  while (is >> f) {
+    tmp.push_back(f);
+    char ch;
+    do {
+      ch = is.get();
+    } while (isspace(ch));
+    if (ch == ',') {
+      while (true) {
+        ch = is.peek();
+        if (isspace(ch)) {
+          is.get(); continue;
+        }
+        if (ch == ')') {
+          is.get(); break;
+        }
+        break;
+      }
+      if (ch == ')') break;
+    } else if (ch == ')') {
+      break;
+    } else {
+      is.setstate(std::ios::failbit);
+      return is;
+    }
+  }
+  size.info = tmp;
+  return is;
+}
+
+inline std::ostream &operator<<(std::ostream &os, const SizeInfo &size) {
+  os << '(';
+  for (index_t i = 0; i < size.info.size(); ++i) {
+    if (i != 0) os << ',';
+    os << size.info[i];
+  }
+  // python style tuple
+  if (size.info.size() == 1) os << ',';
+  os << ')';
+  return os;
+}
+
 struct GridAnchorParam : public dmlc::Parameter<GridAnchorParam> {
-  int reserve;
+  SizeInfo sizes;
+  SizeInfo ratios;
+  bool clip;
   DMLC_DECLARE_PARAMETER(GridAnchorParam) {
-    DMLC_DECLARE_FIELD(reserve).set_default(0)
-    .describe("Place-holder for future parameters.");
+    DMLC_DECLARE_FIELD(sizes).set_default(SizeInfo({1.0f}))
+    .describe("List of sizes of generated anchors.");
+    DMLC_DECLARE_FIELD(ratios).set_default(SizeInfo({1.0f}))
+    .describe("List of aspect ratios of generated anchors.");
+    DMLC_DECLARE_FIELD(clip).set_default(true)
+    .describe("Whether to clip out-of-boundary boxes.");
   }
 };  // struct GridAnchorParam
 
@@ -49,20 +135,22 @@ class GridAnchorOp : public Operator {
     using namespace mshadow;
     using namespace mshadow::expr;
     CHECK_EQ(static_cast<int>(in_data.size()), 1);
-    CHECK_GE(in_data[gridanchor_enum::kData].ndim(), 4)
-      << "Spatial data is required, i.e. width and height";
     int in_height = in_data[gridanchor_enum::kData].size(2);
-    CHECK_GT(in_height, 0);
     int in_width = in_data[gridanchor_enum::kData].size(3);
-    CHECK_GT(in_width, 0);
     CHECK_EQ(out_data.size(), 1);
     Stream<xpu> *s = ctx.get_stream<xpu>();
     // since input sizes are same in each batch, we could share the info
     // i.e. output batch is 1
-    Shape<3> oshape = Shape3(2, in_height, in_width);
+    Shape<3> oshape = Shape3(out_data[gridanchor_enum::kOut].shape_[1],
+      in_height, in_width);
     Tensor<xpu, 3, DType> out = out_data[gridanchor_enum::kOut]
       .get_with_shape<xpu, 3, DType>(oshape, s);
-    GridAnchorForward(out, in_width, in_height);
+    GridAnchorForward(out, in_width, in_height,
+      param_.sizes.info, param_.ratios.info);
+
+    if (param_.clip) {
+      Assign(out, req[gridanchor_enum::kOut], F<mshadow_op::clip_zero_one>(out));
+    }
   }
 
   virtual void Backward(const OpContext &ctx,
@@ -116,7 +204,9 @@ class GridAnchorProp: public OperatorProperty {
     CHECK_GT(in_width, 0) << "Input width should > 0";
     TShape oshape = dshape;
     oshape[0] = 1;  // share outputs as single batch
-    oshape[1] = 2;  // x and y
+    int num_sizes = param_.sizes.info.size();
+    int num_ratios = param_.ratios.info.size();
+    oshape[1] = num_sizes * num_ratios * 4 + 2;  // x and y + boxes * 4
     out_shape->clear();
     out_shape->push_back(oshape);
     return true;

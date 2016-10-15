@@ -72,25 +72,22 @@ class GridAnchorTargetOp : public Operator {
     Stream<xpu> *s = ctx.get_stream<xpu>();
     // get all tensors with spatially compressed to 1d
     TShape ashape = in_data[gridtarget_enum::kAnchor].shape_;
-    Shape<3> tshape = Shape3(1, 2, ashape.ProdShape(2, ashape.ndim()));
-    Tensor<xpu, 3, DType> anchors = in_data[gridtarget_enum::kAnchor]
-      .get_with_shape<xpu, 3, DType>(tshape, s);
+    int num_spatial = ashape.ProdShape(2, ashape.ndim());
+    Tensor<xpu, 2, DType> anchors = in_data[gridtarget_enum::kAnchor]
+      .get_with_shape<xpu, 2, DType>(Shape2(ashape[1], num_spatial), s);
     Tensor<xpu, 3, DType> labels = in_data[gridtarget_enum::kLabel]
       .get<xpu, 3, DType>(s);
-    tshape[0] = in_data[gridtarget_enum::kClsPred].size(0);
-    tshape[1] = in_data[gridtarget_enum::kClsPred].size(1);
-    Tensor<xpu, 3, DType> cls_preds = in_data[gridtarget_enum::kClsPred]
-      .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = out_data[gridtarget_enum::kBox].size(1);
+    Tensor<xpu, 4, DType> cls_preds = in_data[gridtarget_enum::kClsPred]
+      .get<xpu, 4, DType>(s);
+    TShape bshape = out_data[gridtarget_enum::kBox].shape_;
+    Shape<3> tshape = Shape3(bshape[0], bshape[1], num_spatial);
     Tensor<xpu, 3, DType> box_target = out_data[gridtarget_enum::kBox]
       .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = out_data[gridtarget_enum::kBoxMask].size(1);
     Tensor<xpu, 3, DType> box_mask = out_data[gridtarget_enum::kBoxMask]
       .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = out_data[gridtarget_enum::kCls].size(1);
-    Tensor<xpu, 3, DType> cls_target = out_data[gridtarget_enum::kCls]
-      .get_with_shape<xpu, 3, DType>(tshape, s);
-    tshape[1] = 4;
+    Tensor<xpu, 4, DType> cls_target = out_data[gridtarget_enum::kCls]
+      .get<xpu, 4, DType>(s);
+    tshape[1] = tshape[1] * 3 / 4;
     Tensor<xpu, 3, DType> temp_space = ctx.requested[gridtarget_enum::kTempSpace]
       .get_space_typed<xpu, 3, DType>(tshape, s);
 
@@ -155,9 +152,10 @@ class GridAnchorTargetProp : public OperatorProperty {
     using namespace mshadow;
     CHECK_EQ(in_shape->size(), 3) << "Input: [anchor, label, clsPred]";
     TShape ashape = in_shape->at(gridtarget_enum::kAnchor);
-    CHECK_EQ(ashape.ndim(), 4) << "Anchor should be [1-2-height-width] tensor";
+    CHECK_EQ(ashape.ndim(), 4) << "Anchor should be [1-(2+n)-height-width] tensor";
     CHECK_EQ(ashape[0], 1) << "Anchors are shared across batches, first dim=1";
-    CHECK_EQ(ashape[1], 2) << "Number boxes should > 0";
+    CHECK_GE(ashape[1], 6) << "Number boxes should > 0";
+    CHECK_EQ((ashape[1] - 2) % 4, 0) << "# anchors: 2 + 4 * N";
     CHECK_GE(ashape[2], 1) << "Height should > 0";
     CHECK_GE(ashape[3], 1) << "Width should > 0";
     TShape lshape = in_shape->at(gridtarget_enum::kLabel);
@@ -165,19 +163,20 @@ class GridAnchorTargetProp : public OperatorProperty {
     CHECK_GT(lshape[1], 0) << "Padded label should > 0";
     CHECK_EQ(lshape[2], 5) << "Label should be [batch-num_labels-5] tensor";
     TShape pshape = in_shape->at(gridtarget_enum::kClsPred);
-    CHECK_GE(pshape.ndim(), ashape.ndim()) << "Class pred dim should == anchor dim";
+    CHECK_GE(pshape.ndim(), 4) << "Class pred: [batch-num_class-num_anchor-num_spatial]";
     CHECK_GE(pshape[1], 2) << "Class number must >= 1";
-    CHECK_EQ(pshape[2], ashape[2]) << "Anchor/Prediction height mismatch";
-    CHECK_EQ(pshape[3], ashape[3]) << "Anchor/Prediction width mismatch";
-    TShape box_shape = pshape;
-    box_shape[1] = 4;  // delta_x, delta_y, width, height
+    CHECK_GE(pshape[2], 1) << "num_anchor should >= 1";
+    CHECK_EQ(pshape[3], ashape[2] * ashape[3]) << "Anchor/Prediction dim mismatch";
+    TShape box_shape = ashape;
+    box_shape[0] = pshape[0];
+    box_shape[1] = ashape[1] - 2;  // 4 * num_anchors
     TShape mask_shape = box_shape;
-    TShape label_shape = pshape;
-    label_shape[1] = 1;
+    TShape cls_target_shape = pshape;
+    cls_target_shape[1] = 1;
     out_shape->clear();
     out_shape->push_back(box_shape);
     out_shape->push_back(mask_shape);
-    out_shape->push_back(label_shape);
+    out_shape->push_back(cls_target_shape);
     return true;
   }
 

@@ -6,19 +6,38 @@
 */
 
 #include "./grid_anchor-inl.h"
+#include <cmath>
 
 namespace mshadow {
 template<typename DType>
 inline void GridAnchorForward(const Tensor<cpu, 3, DType> &out,
-                              int in_width, int in_height) {
+                              int in_width, int in_height,
+                              const std::vector<float> &sizes,
+                              const std::vector<float> &ratios) {
   float step_x = 1.f / in_width;
   float step_y = 1.f / in_height;
+  int num_sizes = static_cast<int>(sizes.size());
+  int num_ratios = static_cast<int>(ratios.size());
+
   for (int r = 0; r < in_height; ++r) {
     float center_y = (r + 0.5) * step_y;
     for (int c = 0; c < in_width; ++c) {
       float center_x = (c + 0.5) * step_x;
       out[0][r][c] = center_x;
       out[1][r][c] = center_y;
+      int count = 2;
+      for (int i = 0; i < num_sizes; ++i) {
+        float size = sizes[i];
+        for (int j = 0; j < num_ratios; ++j) {
+          float ratio = sqrtf(ratios[j]);
+          float w = size * ratio / 2;
+          float h = size / ratio / 2;
+          out[count++][r][c] = center_x - w;  // xmin
+          out[count++][r][c] = center_y - h;  // ymin
+          out[count++][r][c] = center_x + w;  // xmax
+          out[count++][r][c] = center_y + h;  // ymax
+        }
+      }
     }
   }
 }

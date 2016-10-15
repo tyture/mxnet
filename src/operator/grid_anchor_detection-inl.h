@@ -65,17 +65,13 @@ class GridAnchorDetectionOp : public Operator {
 
      Stream<xpu> *s = ctx.get_stream<xpu>();
      TShape cshape = in_data[griddet_enum::kClsProb].shape_;
-     Shape<3> tshape = Shape3(cshape[0], cshape[1],
-       cshape.ProdShape(2, cshape.ndim()));
-     Tensor<xpu, 3, DType> cls_prob = in_data[griddet_enum::kClsProb]
-       .get_with_shape<xpu, 3, DType>(tshape, s);
-     tshape[1] = in_data[griddet_enum::kBoxPred].shape_[1];
+     TShape bshape = in_data[griddet_enum::kBoxPred].shape_;
+     Tensor<xpu, 4, DType> cls_prob = in_data[griddet_enum::kClsProb]
+       .get<xpu, 4, DType>(s);
      Tensor<xpu, 3, DType> box_pred = in_data[griddet_enum::kBoxPred]
-       .get_with_shape<xpu, 3, DType>(tshape, s);
-     tshape[0] = 1;
-     tshape[1] = in_data[griddet_enum::kAnchor].shape_[1];
-     Tensor<xpu, 3, DType> anchors = in_data[griddet_enum::kAnchor]
-       .get_with_shape<xpu, 3, DType>(tshape, s);
+       .get_with_shape<xpu, 3, DType>(Shape3(cshape[0], bshape[1], cshape[3]), s);
+     Tensor<xpu, 2, DType> anchors = in_data[griddet_enum::kAnchor]
+       .get_with_shape<xpu, 2, DType>(Shape2(2 + bshape[1], cshape[3]), s);
      Tensor<xpu, 3, DType> out = out_data[griddet_enum::kOut]
        .get<xpu, 3, DType>(s);
      Tensor<xpu, 3, DType> temp_space = ctx.requested[griddet_enum::kTempSpace]
@@ -128,17 +124,11 @@ class GridAnchorDetectionProp : public OperatorProperty {
     TShape cshape = in_shape->at(griddet_enum::kClsProb);
     TShape bshape = in_shape->at(griddet_enum::kBoxPred);
     TShape ashape = in_shape->at(griddet_enum::kAnchor);
+    CHECK_EQ(cshape.ndim(), 4);
     CHECK_GE(cshape[1], 2) << "Number of classes must > 1";
-    CHECK_EQ(cshape.ndim(), bshape.ndim());
-    CHECK_EQ(bshape.ndim(), ashape.ndim());
-    for (index_t i = 0; i < cshape.ndim(); ++i) {
-      if (i == 1) continue;
-      CHECK_EQ(cshape[i], bshape[i]) << "Provided: " << cshape << ", " << bshape;
-      CHECK_EQ(bshape[i], ashape[i]) << "Provided: " << bshape << ", " << ashape;
-    }
     TShape oshape = TShape(3);
     oshape[0] = cshape[0];
-    oshape[1] = ashape.ProdShape(2, ashape.ndim());  // num spatial
+    oshape[1] = cshape.ProdShape(2, cshape.ndim());
     oshape[2] = 6;  // [id, prob, xmin, ymin, xmax, ymax]
     out_shape->clear();
     out_shape->push_back(oshape);

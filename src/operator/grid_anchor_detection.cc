@@ -44,45 +44,48 @@ inline DType Clip(DType value, DType lower, DType upper) {
 
 template<typename DType>
 inline void GridAnchorDetectionForward(const Tensor<cpu, 3, DType> &out,
-                                     const Tensor<cpu, 3, DType> &cls_prob,
+                                     const Tensor<cpu, 4, DType> &cls_prob,
                                      const Tensor<cpu, 3, DType> &box_pred,
-                                     const Tensor<cpu, 3, DType> &anchors,
+                                     const Tensor<cpu, 2, DType> &anchors,
                                      float threshold, bool clip,
                                      float size_norm) {
   using namespace griddet_util;
   index_t num_classes = cls_prob.size(1);
-  index_t num_spatial = cls_prob.size(2);
+  index_t num_spatial = cls_prob.size(3);
+  index_t num_anchors = cls_prob.size(2);
   index_t count = 0;
   for (index_t nbatch = 0; nbatch < cls_prob.size(0); ++nbatch) {
     for (index_t i = 0; i < num_spatial; ++i) {
-      DType score = -1;
-      int id = 0;
-      for (int j = 1; j < num_classes; ++j) {
-        DType temp = cls_prob[nbatch][j][i];
-        if (temp > score) {
-          score = temp;
-          id = j;
+      DType anchor_x = anchors[0][i];
+      DType anchor_y = anchors[1][i];
+      for (index_t n = 0; n < num_anchors; ++n) {
+        DType score = -1;
+        int id = 0;
+        for (int j = 1; j < num_classes; ++j) {
+          DType temp = cls_prob[nbatch][j][n][i];
+          if (temp > score) {
+            score = temp;
+            id = j;
+          }
         }
+        if (id > 0 && score < threshold) {
+          id = 0;
+        }
+        // [id, prob, xmin, ymin, xmax, ymax]
+        out[nbatch][count][0] = id - 1;  // remove background, restore original id
+        out[nbatch][count][1] = (id == 0 ? DType(-1) : score);
+        DType xmin = anchor_x + box_pred[nbatch][n * 4][i] * size_norm;
+        DType ymin = anchor_y + box_pred[nbatch][n * 4 + 1][i] * size_norm;
+        DType xmax = anchor_x + box_pred[nbatch][n * 4 + 2][i] * size_norm;
+        DType ymax = anchor_y + box_pred[nbatch][n * 4 + 3][i] * size_norm;
+        DType lower = 0;
+        DType upper = 1;
+        out[nbatch][count][2] = clip? Clip(xmin, lower, upper) : xmin;
+        out[nbatch][count][3] = clip? Clip(ymin, lower, upper) : ymin;
+        out[nbatch][count][4] = clip? Clip(xmax, lower, upper) : xmax;
+        out[nbatch][count][5] = clip? Clip(ymax, lower, upper) : ymax;
+        ++count;
       }
-      if (id > 0 && score < threshold) {
-        id = 0;
-      }
-      // [id, prob, xmin, ymin, xmax, ymax]
-      out[nbatch][count][0] = id - 1;  // remove background, restore original id
-      out[nbatch][count][1] = (id == 0 ? DType(-1) : score);
-      DType anchor_x = anchors[0][0][i];
-      DType anchor_y = anchors[0][1][i];
-      DType xmin = anchor_x + box_pred[nbatch][0][i] * size_norm;
-      DType ymin = anchor_y + box_pred[nbatch][1][i] * size_norm;
-      DType xmax = anchor_x + box_pred[nbatch][2][i] * size_norm;
-      DType ymax = anchor_y + box_pred[nbatch][3][i] * size_norm;
-      DType lower = 0;
-      DType upper = 1;
-      out[nbatch][count][2] = clip? Clip(xmin, lower, upper) : xmin;
-      out[nbatch][count][3] = clip? Clip(ymin, lower, upper) : ymin;
-      out[nbatch][count][4] = clip? Clip(xmax, lower, upper) : xmax;
-      out[nbatch][count][5] = clip? Clip(ymax, lower, upper) : ymax;
-      ++count;
     }
   }
 }

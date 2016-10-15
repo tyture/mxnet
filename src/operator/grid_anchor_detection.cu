@@ -27,7 +27,7 @@ __device__ void Clip(DType *value, DType lower, DType upper) {
 template<typename DType>
 __global__ void MergePredictions(DType *out, const DType *cls_prob,
                                  const DType *box_pred, const DType *anchors,
-                                 int num_classes, int num_spatial,
+                                 int num_classes, int num_anchors, int num_spatial,
                                  int num_batches, float threshold, bool clip,
                                  float size_norm) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -35,39 +35,44 @@ __global__ void MergePredictions(DType *out, const DType *cls_prob,
   for (int i = index; i < num_batches * num_spatial; i += blockDim.x * gridDim.x) {
     int n_batch = i / num_spatial;
     int n_anchor = i % num_spatial;
-    const DType *p_cls_prob = cls_prob + n_batch * num_classes * num_spatial;
-    const DType *p_box_pred = box_pred + n_batch * num_spatial * 4;
-    DType *p_out = out + n_batch * num_spatial * 6;
-    DType score = -1;
-    int id = 0;
-    for (int j = 1; j < num_classes; ++j) {
-      DType temp = p_cls_prob[j * num_spatial + n_anchor];
-      if (temp > score) {
-        score = temp;
-        id = j;
+    const DType *p_cls_prob = cls_prob + n_batch * num_classes * num_spatial * num_anchors;
+    const DType *p_box_pred = box_pred + n_batch * num_spatial * 4 * num_anchors;
+    DType *p_out = out + n_batch * num_spatial * 6 * num_anchors;
+    for (int n = 0; n < num_anchors; ++n) {
+      int offset = n * num_spatial + n_anchor;
+      int stride = num_spatial * num_anchors;
+      DType score = -1;
+      int id = 0;
+      for (int j = 1; j < num_classes; ++j) {
+        DType temp = p_cls_prob[j * stride + offset];
+        if (temp > score) {
+          score = temp;
+          id = j;
+        }
       }
+      if (id > 0 && score < threshold) {
+        id = 0;
+      }
+      p_out[offset * 6] = id - 1;  // restore original class id
+      p_out[offset * 6 + 1] = (id == 0 ? DType(-1) : score);
+      DType anchor_x = anchors[n_anchor];
+      DType anchor_y = anchors[n_anchor + num_spatial];
+      int offset_b = n * num_spatial * 4 + n_anchor;
+      DType xmin = anchor_x + p_box_pred[offset_b] * size_norm;
+      DType ymin = anchor_y + p_box_pred[offset_b + num_spatial] * size_norm;
+      DType xmax = anchor_x + p_box_pred[offset_b + num_spatial * 2] * size_norm;
+      DType ymax = anchor_y + p_box_pred[offset_b + num_spatial * 3] * size_norm;
+      if (clip) {
+        Clip(&xmin, DType(0), DType(1));
+        Clip(&ymin, DType(0), DType(1));
+        Clip(&xmax, DType(0), DType(1));
+        Clip(&ymax, DType(0), DType(1));
+      }
+      p_out[offset * 6 + 2] = xmin;
+      p_out[offset * 6 + 3] = ymin;
+      p_out[offset * 6 + 4] = xmax;
+      p_out[offset * 6 + 5] = ymax;
     }
-    if (id > 0 && score < threshold) {
-      id = 0;
-    }
-    p_out[n_anchor * 6] = id - 1;  // restore original class id
-    p_out[n_anchor * 6 + 1] = (id == 0 ? DType(-1) : score);
-    DType anchor_x = anchors[n_anchor];
-    DType anchor_y = anchors[n_anchor + num_spatial];
-    DType xmin = anchor_x + p_box_pred[n_anchor] * size_norm;
-    DType ymin = anchor_y + p_box_pred[n_anchor + num_spatial] * size_norm;
-    DType xmax = anchor_x + p_box_pred[n_anchor + num_spatial * 2] * size_norm;
-    DType ymax = anchor_y + p_box_pred[n_anchor + num_spatial * 3] * size_norm;
-    if (clip) {
-      Clip(&xmin, DType(0), DType(1));
-      Clip(&ymin, DType(0), DType(1));
-      Clip(&xmax, DType(0), DType(1));
-      Clip(&ymax, DType(0), DType(1));
-    }
-    p_out[n_anchor * 6 + 2] = xmin;
-    p_out[n_anchor * 6 + 3] = ymin;
-    p_out[n_anchor * 6 + 4] = xmax;
-    p_out[n_anchor * 6 + 5] = ymax;
   }
 }
 
@@ -137,20 +142,21 @@ __global__ void ApplyNMS(DType *out, int pos, int num_anchors,
 
 template<typename DType>
 inline void GridAnchorDetectionForward(const Tensor<gpu, 3, DType> &out,
-                                     const Tensor<gpu, 3, DType> &cls_prob,
+                                     const Tensor<gpu, 4, DType> &cls_prob,
                                      const Tensor<gpu, 3, DType> &box_pred,
-                                     const Tensor<gpu, 3, DType> &anchors,
+                                     const Tensor<gpu, 2, DType> &anchors,
                                      float threshold, bool clip,
                                      float size_norm) {
-  int num_classes = cls_prob.size(1);
-  int num_spatial = cls_prob.size(2);
   int num_batches = cls_prob.size(0);
+  int num_classes = cls_prob.size(1);
+  int num_anchors = cls_prob.size(2);
+  int num_spatial = cls_prob.size(3);
   const int num_threads = THREADS_PER_WARP * WARPS_PER_BLOCK;
   int num_samples = num_batches * num_spatial;
   int num_blocks = (num_samples - 1) / num_threads + 1;
   cuda::MergePredictions<<<num_blocks, num_threads>>>(out.dptr_, cls_prob.dptr_,
-    box_pred.dptr_, anchors.dptr_, num_classes, num_spatial, num_batches,
-    threshold, clip, size_norm);
+    box_pred.dptr_, anchors.dptr_, num_classes, num_anchors, num_spatial,
+    num_batches, threshold, clip, size_norm);
   GRID_ANCHOR_DETECTION_CUDA_CHECK(cudaPeekAtLastError());
 }
 
