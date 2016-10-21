@@ -6,9 +6,7 @@
 */
 
 #include "./multibox_prior-inl.h"
-
-#define WARPS_PER_BLOCK 1
-#define THREADS_PER_WARP 32
+#include <mshadow/cuda/tensor_gpu-inl.cuh>
 
 #define MULTIBOXPRIOR_CUDA_CHECK(condition) \
   /* Code block avoids redefinition of cudaError_t error */ \
@@ -20,8 +18,11 @@
 namespace mshadow {
 namespace cuda {
 template<typename DType>
-__global__ void AssignPriors(DType *out, float size, float sqrt_ratio, int in_width,
-                             int in_height, float step_x, float step_y, int stride, int offset) {
+__global__ void AssignPriors(DType *out, const float size,
+                             const float sqrt_ratio, const int in_width,
+                             const int in_height, const float step_x,
+                             const float step_y, const int stride,
+                             const int offset) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= in_width * in_height) return;
   int r = index / in_width;
@@ -42,24 +43,25 @@ template<typename DType>
 inline void MultiBoxPriorForward(const Tensor<gpu, 2, DType> &out,
                             const std::vector<float> &sizes,
                             const std::vector<float> &ratios,
-                            int in_width, int in_height) {
+                            const int in_width, const int in_height) {
   CHECK_EQ(out.CheckContiguous(), true);
   cudaStream_t stream = Stream<gpu>::GetStream(out.stream_);
   DType *out_ptr = out.dptr_;
-  float step_x = 1.f / in_width;
-  float step_y = 1.f / in_height;
-  int num_sizes = static_cast<int>(sizes.size());
-  int num_ratios = static_cast<int>(ratios.size());
+  const float step_x = 1.f / in_width;
+  const float step_y = 1.f / in_height;
+  const int num_sizes = static_cast<int>(sizes.size());
+  const int num_ratios = static_cast<int>(ratios.size());
 
-  int num_thread = THREADS_PER_WARP * WARPS_PER_BLOCK;
-  dim3 thread_dim(num_thread);
-  dim3 block_dim((in_width * in_height - 1) / num_thread + 1);
+  const int num_thread = cuda::kMaxThreadsPerBlock;
+  dim3 dimBlock(num_thread);
+  dim3 dimGrid((in_width * in_height - 1) / num_thread + 1);
+  cuda::CheckLaunchParam(dimGrid, dimBlock, "MultiBoxPrior Forward");
 
-  int stride = 4 * (num_sizes + num_ratios - 1);
+  const int stride = 4 * (num_sizes + num_ratios - 1);
   int offset = 0;
   // ratio = 1, various sizes
   for (int i = 0; i < num_sizes; ++i) {
-    cuda::AssignPriors<DType><<<block_dim, thread_dim, 0, stream>>>(out_ptr,
+    cuda::AssignPriors<DType><<<dimGrid, dimBlock, 0, stream>>>(out_ptr,
       sizes[i], 1.f, in_width, in_height, step_x, step_y, stride, offset);
     ++offset;
   }
@@ -67,7 +69,7 @@ inline void MultiBoxPriorForward(const Tensor<gpu, 2, DType> &out,
 
   // size = sizes[0], various ratios
   for (int j = 1; j < num_ratios; ++j) {
-    cuda::AssignPriors<DType><<<block_dim, thread_dim, 0, stream>>>(out_ptr,
+    cuda::AssignPriors<DType><<<dimGrid, dimBlock, 0, stream>>>(out_ptr,
       sizes[0], sqrtf(ratios[j]), in_width, in_height, step_x, step_y, stride, offset);
     ++offset;
   }

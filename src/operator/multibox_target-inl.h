@@ -145,18 +145,6 @@ class MultiBoxTargetOp : public Operator {
     using namespace mshadow_op;
     using namespace mshadow::expr;
     CHECK_EQ(in_data.size(), 3);
-    CHECK_EQ(in_data[mboxtarget_enum::kAnchor].ndim(), 3) << "Anchors: 1*N*4.";
-    CHECK_EQ(in_data[mboxtarget_enum::kAnchor].size(0), 1);
-    CHECK_GT(in_data[mboxtarget_enum::kAnchor].size(1), 0)
-      << "Number of anchors must > 0.";
-    CHECK_EQ(in_data[mboxtarget_enum::kAnchor].size(2), 4);
-    CHECK_EQ(in_data[mboxtarget_enum::kLabel].ndim(), 3) << "Labels: batch*M*5";
-    CHECK_GT(in_data[mboxtarget_enum::kLabel].size(1), 0)
-      << "Number of ground-truth must > 0.";
-    CHECK_EQ(in_data[mboxtarget_enum::kLabel].size(2), 5);
-    CHECK_EQ(in_data[mboxtarget_enum::kAnchor].size(1),
-      in_data[mboxtarget_enum::kClsPred].size(2)) << "# anchors mismatch";
-    CHECK_GT(in_data[mboxtarget_enum::kClsPred].size(1), 1);
     CHECK_EQ(out_data.size(), 3);
     Stream<xpu> *s = ctx.get_stream<xpu>();
     Tensor<xpu, 2, DType> anchors = in_data[mboxtarget_enum::kAnchor]

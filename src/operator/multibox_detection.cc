@@ -25,8 +25,9 @@ struct SortElemDescend {
 
 template<typename DType>
 inline void TransformLocations(DType *out, const DType *anchors,
-                               const DType *loc_pred, bool clip,
-                               float vx, float vy, float vw, float vh) {
+                               const DType *loc_pred, const bool clip,
+                               const float vx, const float vy,
+                               const float vw, const float vh) {
   // transform predictions to detection results
   DType al = anchors[0];
   DType at = anchors[1];
@@ -55,17 +56,18 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
                                      const Tensor<cpu, 3, DType> &cls_prob,
                                      const Tensor<cpu, 2, DType> &loc_pred,
                                      const Tensor<cpu, 2, DType> &anchors,
-                                     float threshold, bool clip,
+                                     const float threshold, const bool clip,
                                      const std::vector<float> &variances) {
   CHECK_EQ(variances.size(), 4) << "Variance size must be 4";
-  index_t num_classes = cls_prob.size(1);
-  index_t num_anchors = cls_prob.size(2);
+  const int num_classes = cls_prob.size(1);
+  const int num_anchors = cls_prob.size(2);
+  const int num_batches = cls_prob.size(0);
   const DType *p_anchor = anchors.dptr_;
-  for (index_t nbatch = 0; nbatch < cls_prob.size(0); ++nbatch) {
+  for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
     const DType *p_cls_prob = cls_prob.dptr_ + nbatch * num_classes * num_anchors;
     const DType *p_loc_pred = loc_pred.dptr_ + nbatch * num_anchors * 4;
     DType *p_out = out.dptr_ + nbatch * num_anchors * 6;
-    for (index_t i = 0; i < num_anchors; ++i) {
+    for (int i = 0; i < num_anchors; ++i) {
       // find the predicted class id and probability
       DType score = -1;
       int id = 0;
@@ -82,7 +84,7 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
       // [id, prob, xmin, ymin, xmax, ymax]
       p_out[i * 6] = id - 1;  // remove background, restore original id
       p_out[i * 6 + 1] = (id == 0 ? DType(-1) : score);
-      index_t offset = i * 4;
+      int offset = i * 4;
       TransformLocations(p_out + i * 6 + 2, p_anchor + offset,
         p_loc_pred + offset, clip, variances[0], variances[1],
         variances[2], variances[3]);
@@ -102,15 +104,17 @@ inline DType CalculateOverlap(const DType *a, const DType *b) {
 template<typename DType>
 inline void NonMaximumSuppression(const Tensor<cpu, 3, DType> &out,
                                   const Tensor<cpu, 3, DType> &temp_space,
-                                  float nms_threshold, bool force_suppress) {
+                                  const float nms_threshold,
+                                  const bool force_suppress) {
   Copy(temp_space, out, out.stream_);
-  index_t num_anchors = out.size(1);
-  for (index_t nbatch = 0; nbatch < out.size(0); ++nbatch) {
+  const int num_anchors = out.size(1);
+  const int num_batches = out.size(0);
+  for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
     DType *pout = out.dptr_ + nbatch * num_anchors * 6;
     // sort confidence in descend order
     std::vector<SortElemDescend<DType>> sorter;
     sorter.reserve(num_anchors);
-    for (index_t i = 0; i < num_anchors; ++i) {
+    for (int i = 0; i < num_anchors; ++i) {
       DType id = pout[i * 6];
       if (id >= 0) {
         sorter.push_back(SortElemDescend<DType>(pout[i * 6 + 1], i));
@@ -121,17 +125,17 @@ inline void NonMaximumSuppression(const Tensor<cpu, 3, DType> &out,
     std::stable_sort(sorter.begin(), sorter.end());
     // re-order output
     DType *ptemp = temp_space.dptr_ + nbatch * num_anchors * 6;
-    for (index_t i = 0; i < sorter.size(); ++i) {
-      for (index_t j = 0; j < 6; ++j) {
+    for (std::size_t i = 0; i < sorter.size(); ++i) {
+      for (int j = 0; j < 6; ++j) {
         pout[i * 6 + j] = ptemp[sorter[i].index * 6 + j];
       }
     }
     // apply nms
-    for (index_t i = 0; i < num_anchors; ++i) {
-      index_t offset_i = i * 6;
+    for (int i = 0; i < num_anchors; ++i) {
+      int offset_i = i * 6;
       if (pout[offset_i] < 0) continue;  // skip eliminated
-      for (index_t j = i + 1; j < num_anchors; ++j) {
-        index_t offset_j = j * 6;
+      for (int j = i + 1; j < num_anchors; ++j) {
+        int offset_j = j * 6;
         if (pout[offset_j] < 0) continue;  // skip eliminated
         if (force_suppress || (pout[offset_i] == pout[offset_j])) {
           // when foce_suppress == true or class_id equals

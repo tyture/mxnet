@@ -5,13 +5,14 @@
  * \author Joshua Zhang
 */
 #include "./multibox_target-inl.h"
-#include <algorithm>
 #include "./mshadow_op.h"
+#include <algorithm>
 
 namespace mshadow {
 template<typename DType>
 inline void AssignLocTargets(const DType *anchor, const DType *l, DType *dst,
-                             float vx, float vy, float vw, float vh) {
+                             const float vx, const float vy,
+                             const float vw, const float vh) {
   float al = *(anchor);
   float at = *(anchor+1);
   float ar = *(anchor+2);
@@ -56,19 +57,21 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
                            const Tensor<cpu, 3, DType> &labels,
                            const Tensor<cpu, 3, DType> &cls_preds,
                            const Tensor<cpu, 4, DType> &temp_space,
-                           float overlap_threshold, float background_label,
-                           float negative_mining_ratio,
-                           float negative_mining_thresh,
-                           int minimum_negative_samples,
+                           const float overlap_threshold,
+                           const float background_label,
+                           const float negative_mining_ratio,
+                           const float negative_mining_thresh,
+                           const int minimum_negative_samples,
                            const std::vector<float> &variances) {
   const DType *p_anchor = anchors.dptr_;
-  index_t num_labels = labels.size(1);
-  index_t num_anchors = anchors.size(0);
-  for (index_t nbatch = 0; nbatch < labels.size(0); ++nbatch) {
+  const int num_batches = labels.size(0);
+  const int num_labels = labels.size(1);
+  const int num_anchors = anchors.size(0);
+  for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
     const DType *p_label = labels.dptr_ + nbatch * num_labels * 5;
     const DType *p_overlaps = temp_space.dptr_ + nbatch * num_anchors * num_labels;
-    index_t num_valid_gt = 0;
-    for (index_t i = 0; i < num_labels; ++i) {
+    int num_valid_gt = 0;
+    for (int i = 0; i < num_labels; ++i) {
       if (static_cast<float>(*(p_label + i * 5)) == -1.0f) {
         CHECK_EQ(static_cast<float>(*(p_label + i * 5 + 1)), -1.0f);
         CHECK_EQ(static_cast<float>(*(p_label + i * 5 + 2)), -1.0f);
@@ -90,12 +93,12 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
         int best_anchor = -1;
         int best_gt = -1;
         float max_overlap = 1e-6;  // start with a very small positive overlap
-        for (index_t j = 0; j < num_anchors; ++j) {
+        for (int j = 0; j < num_anchors; ++j) {
           if (anchor_flags[j] == 1) {
             continue;  // already matched this anchor
           }
           const DType *pp_overlaps = p_overlaps + j * num_labels;
-          for (index_t k = 0; k < num_valid_gt; ++k) {
+          for (int k = 0; k < num_valid_gt; ++k) {
             if (gt_flags[k]) {
               continue;  // already matched this gt
             }
@@ -125,14 +128,14 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
 
       if (overlap_threshold > 0) {
         // find positive matches based on overlaps
-        for (index_t j = 0; j < num_anchors; ++j) {
+        for (int j = 0; j < num_anchors; ++j) {
           if (anchor_flags[j] == 1) {
             continue;  // already matched this anchor
           }
           const DType *pp_overlaps = p_overlaps + j * num_labels;
           int best_gt = -1;
           int max_iou = -1.0f;
-          for (index_t k = 0; k < num_valid_gt; ++k) {
+          for (int k = 0; k < num_valid_gt; ++k) {
             float iou = static_cast<float>(*(pp_overlaps + k));
             if (iou > max_iou) {
               best_gt = k;
@@ -155,7 +158,7 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
       }
 
       if (negative_mining_ratio > 0) {
-        index_t num_classes = cls_preds.size(1);
+        const int num_classes = cls_preds.size(1);
         DType *p_cls_preds = cls_preds.dptr_ + nbatch * num_classes * num_anchors;
         CHECK_GT(negative_mining_thresh, 0);
         int num_negative = num_positive * negative_mining_ratio;
@@ -166,7 +169,7 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
           // use negative mining, pick up "best" negative samples
           std::vector<SortElemDescend> temp;
           temp.reserve(num_anchors - num_positive);
-          for (index_t j = 0; j < num_anchors; ++j) {
+          for (int j = 0; j < num_anchors; ++j) {
             if (anchor_flags[j] == 1) {
               continue;  // already matched this anchor
             }
@@ -175,7 +178,7 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
               const DType *pp_overlaps = p_overlaps + j * num_labels;
               int best_gt = -1;
               int max_iou = -1.0f;
-              for (index_t k = 0; k < num_valid_gt; ++k) {
+              for (int k = 0; k < num_valid_gt; ++k) {
                 float iou = static_cast<float>(*(pp_overlaps + k));
                 if (iou > max_iou) {
                   best_gt = k;
@@ -217,7 +220,7 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
         }
       } else {
         // use all negative samples
-        for (index_t i = 0; i < num_anchors; ++i) {
+        for (int i = 0; i < num_anchors; ++i) {
           if (anchor_flags[i] != 1) {
             anchor_flags[i] = 0;
           }
@@ -228,13 +231,13 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
       DType *p_loc_target = loc_target.dptr_ + nbatch * num_anchors * 4;
       DType *p_loc_mask = loc_mask.dptr_ + nbatch * num_anchors * 4;
       DType *p_cls_target = cls_target.dptr_ + nbatch * num_anchors;
-      for (index_t i = 0; i < num_anchors; ++i) {
+      for (int i = 0; i < num_anchors; ++i) {
         if (anchor_flags[i] == 1) {
           // positive sample
           CHECK_GE(max_matches[i].second, 0);
           // 0 reserved for background
           *(p_cls_target + i) = *(p_label + 5 * max_matches[i].second) + 1;
-          index_t offset = i * 4;
+          int offset = i * 4;
           *(p_loc_mask + offset) = 1;
           *(p_loc_mask + offset + 1) = 1;
           *(p_loc_mask + offset + 2) = 1;
@@ -245,7 +248,7 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
         } else if (anchor_flags[i] == 0) {
           // negative sample
           *(p_cls_target + i) = 0;
-          index_t offset = i * 4;
+          int offset = i * 4;
           *(p_loc_mask + offset) = 0;
           *(p_loc_mask + offset + 1) = 0;
           *(p_loc_mask + offset + 2) = 0;

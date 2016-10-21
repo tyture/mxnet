@@ -148,9 +148,9 @@ class MultiBoxPriorOp : public Operator {
     // TODO(Joshua Zhang): this implementation is to be compliant to original ssd in caffe
     // The prior boxes could be implemented in more versatile ways
     // since input sizes are same in each batch, we could share MultiBoxPrior
-    int num_sizes = static_cast<int>(sizes_.size());
-    int num_ratios = static_cast<int>(ratios_.size());
-    int num_anchors = num_sizes - 1 + num_ratios;  // anchors per location
+    const int num_sizes = static_cast<int>(sizes_.size());
+    const int num_ratios = static_cast<int>(ratios_.size());
+    const int num_anchors = num_sizes - 1 + num_ratios;  // anchors per location
     Shape<2> oshape = Shape2(num_anchors * in_width * in_height, 4);
     out = out_data[mboxprior_enum::kOut].get_with_shape<xpu, 2, DType>(oshape, s);
     MultiBoxPriorForward(out, sizes_, ratios_, in_width, in_height);

@@ -132,19 +132,8 @@ class MultiBoxDetectionOp : public Operator {
      using namespace mshadow;
      using namespace mshadow::expr;
      CHECK_EQ(in_data.size(), 3) << "Input: [cls_prob, loc_pred, anchor]";
-     TShape cshape = in_data[mboxdet_enum::kClsProb].shape_;
-     TShape lshape = in_data[mboxdet_enum::kLocPred].shape_;
      TShape ashape = in_data[mboxdet_enum::kAnchor].shape_;
-     CHECK_EQ(cshape.ndim(), 3);
-     CHECK_EQ(lshape.ndim(), 2);
-     CHECK_EQ(ashape.ndim(), 3);
-     CHECK_GE(cshape[1], 2) << "Number of classes must > 1";
-     CHECK_EQ(cshape[2], ashape[1]) << "Number of anchors mismatch";
-     CHECK_EQ(cshape[2] * 4, lshape[1]) << "# anchors mismatch with # loc";
-     CHECK_GT(ashape[1], 0) << "Number of anchors must > 0";
-     CHECK_EQ(ashape[2], 4);
      CHECK_EQ(out_data.size(), 1);
-     CHECK_EQ(out_data[mboxdet_enum::kOut].size(1), ashape[1]);
 
      Stream<xpu> *s = ctx.get_stream<xpu>();
      Tensor<xpu, 3, DType> cls_prob = in_data[mboxdet_enum::kClsProb]

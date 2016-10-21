@@ -5,9 +5,7 @@
  * \author Joshua Zhang
 */
 #include "./multibox_detection-inl.h"
-
-#define WARPS_PER_BLOCK 16
-#define THREADS_PER_WARP 32
+#include <mshadow/cuda/tensor_gpu-inl.cuh>
 
 #define MULTIBOX_DETECTION_CUDA_CHECK(condition) \
   /* Code block avoids redefinition of cudaError_t error */ \
@@ -19,7 +17,7 @@
 namespace mshadow {
 namespace cuda {
 template<typename DType>
-__device__ void Clip(DType *value, DType lower, DType upper) {
+__device__ void Clip(DType *value, const DType lower, const DType upper) {
   if ((*value) < lower) *value = lower;
   if ((*value) > upper) *value = upper;
 }
@@ -27,9 +25,10 @@ __device__ void Clip(DType *value, DType lower, DType upper) {
 template<typename DType>
 __global__ void MergePredictions(DType *out, const DType *cls_prob,
                                  const DType *loc_pred, const DType *anchors,
-                                 int num_classes, int num_anchors,
-                                 int num_batches, float threshold, bool clip,
-                                 float vx, float vy, float vw, float vh) {
+                                 const int num_classes, const int num_anchors,
+                                 const int num_batches, const float threshold,
+                                 const bool clip, const float vx,
+                                 const float vy, const float vw, const float vh) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_batches * num_anchors) return;
   for (int i = index; i < num_batches * num_anchors; i += blockDim.x * gridDim.x) {
@@ -83,8 +82,9 @@ __global__ void MergePredictions(DType *out, const DType *cls_prob,
 }
 
 template<typename DType>
-__global__ void MergeSortDescend(DType *src, DType *dst, int size,
-                                 int width, int slices, int step, int offset) {
+__global__ void MergeSortDescend(DType *src, DType *dst, const int size,
+                                 const int width, const int slices,
+                                 const int step, const int offset) {
   int index = blockDim.x * blockIdx.x + threadIdx.x;
   int start = width * index * slices;
   for (int slice = 0; slice < slices; ++slice) {
@@ -124,9 +124,9 @@ __device__ void CalculateOverlap(const DType *a, const DType *b, DType *iou) {
 }
 
 template<typename DType>
-__global__ void ApplyNMS(DType *out, int pos, int num_anchors,
-                         int step, int id_index, int loc_index,
-                         bool force_suppress, float nms_threshold) {
+__global__ void ApplyNMS(DType *out, const int pos, const int num_anchors,
+                         const int step, const int id_index, const int loc_index,
+                         const bool force_suppress, const float nms_threshold) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   DType compare_id = out[pos * step + id_index];
   if (compare_id < 0) return;  // not a valid positive detection, skip
@@ -154,11 +154,11 @@ inline void MultiBoxDetectionForward(const Tensor<gpu, 3, DType> &out,
                                      float threshold, bool clip,
                                      const std::vector<float> &variances) {
   CHECK_EQ(variances.size(), 4) << "Variance size must be 4";
-  int num_classes = cls_prob.size(1);
-  int num_anchors = cls_prob.size(2);
-  int num_batches = cls_prob.size(0);
-  const int num_threads = THREADS_PER_WARP * WARPS_PER_BLOCK;
-  int num_samples = num_batches * num_anchors;
+  const int num_classes = cls_prob.size(1);
+  const int num_anchors = cls_prob.size(2);
+  const int num_batches = cls_prob.size(0);
+  const int num_threads = cuda::kMaxThreadsPerBlock;
+  const int num_samples = num_batches * num_anchors;
   int num_blocks = (num_samples - 1) / num_threads + 1;
   cuda::MergePredictions<<<num_blocks, num_threads>>>(out.dptr_, cls_prob.dptr_,
     loc_pred.dptr_, anchors.dptr_, num_classes, num_anchors, num_batches,
@@ -170,20 +170,23 @@ template<typename DType>
 inline void NonMaximumSuppression(const Tensor<gpu, 3, DType> &out,
                                   const Tensor<gpu, 3, DType> &temp_space,
                                   float nms_threshold, bool force_suppress) {
-  int num_anchors = out.size(1);
-  int total_threads = num_anchors / 2 + 1;
-  const int num_threads = WARPS_PER_BLOCK * THREADS_PER_WARP;
+  const int num_anchors = out.size(1);
+  const int num_batches = out.size(0);
+  cudaStream_t stream = Stream<gpu>::GetStream(out.stream_);
+  const int total_threads = num_anchors / 2 + 1;
+  const int num_threads = cuda::kMaxThreadsPerBlock;
   int num_blocks = (total_threads - 1) / num_threads + 1;
+  cuda::CheckLaunchParam(num_blocks, num_threads, "MultiBoxDetection Forward");
   // sort detection results
-  for (int nbatch = 0; nbatch < out.size(0); ++nbatch) {
+  for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
     DType *src_ptr = out.dptr_ + nbatch * num_anchors * 6;
     DType *dst_ptr = temp_space.dptr_ + nbatch * num_anchors * 6;
     DType *src = src_ptr;
     DType *dst = dst_ptr;
     for (int width = 2; width < (num_anchors << 1); width <<= 1) {
       int slices = (num_anchors - 1) / (total_threads * width) + 1;
-      cuda::MergeSortDescend<<<num_blocks, num_threads>>>(src, dst, num_anchors,
-        width, slices, 6, 1);
+      cuda::MergeSortDescend<<<num_blocks, num_threads, 0, stream>>>(src,
+        dst, num_anchors, width, slices, 6, 1);
       MULTIBOX_DETECTION_CUDA_CHECK(cudaPeekAtLastError());
       src = src == src_ptr? dst_ptr : src_ptr;
       dst = dst == src_ptr? dst_ptr : src_ptr;
@@ -192,12 +195,13 @@ inline void NonMaximumSuppression(const Tensor<gpu, 3, DType> &out,
   Copy(out, temp_space, temp_space.stream_);
   // apply nms
   num_blocks = (num_anchors - 1) / num_threads + 1;
-  for (int nbatch = 0; nbatch < out.size(0); ++nbatch) {
+  cuda::CheckLaunchParam(num_blocks, num_threads, "MultiBoxDetection NMS");
+  for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
     DType *ptr = out.dptr_ + nbatch * num_anchors * 6;
     for (int pos = 0; pos < num_anchors; ++pos) {
       // suppress against position: pos
-      cuda::ApplyNMS<<<num_blocks, num_threads>>>(ptr, pos, num_anchors,
-        6, 0, 2, force_suppress, nms_threshold);
+      cuda::ApplyNMS<<<num_blocks, num_threads, 0, stream>>>(ptr, pos,
+        num_anchors, 6, 0, 2, force_suppress, nms_threshold);
       MULTIBOX_DETECTION_CUDA_CHECK(cudaPeekAtLastError());
     }
   }

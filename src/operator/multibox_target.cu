@@ -5,9 +5,7 @@
  * \author Joshua Zhang
 */
 #include "./multibox_target-inl.h"
-
-#define WARPS_PER_BLOCK 16
-#define THREADS_PER_WARP 32
+#include <mshadow/cuda/tensor_gpu-inl.cuh>
 
 #define MULTIBOX_TARGET_CUDA_CHECK(condition) \
   /* Code block avoids redefinition of cudaError_t error */ \
@@ -20,7 +18,8 @@ namespace mshadow {
 namespace cuda {
 template<typename DType>
 __global__ void InitGroundTruthFlags(DType *gt_flags, const DType *labels,
-                                     int num_batches, int num_labels) {
+                                     const int num_batches,
+                                     const int num_labels) {
   int index = blockIdx.x * blockDim.x + threadIdx.x;
   if (index >= num_batches * num_labels) return;
   int b = index / num_labels;
@@ -35,16 +34,16 @@ __global__ void InitGroundTruthFlags(DType *gt_flags, const DType *labels,
 template<typename DType>
 __global__ void FindBestMatches(DType *best_matches, DType *gt_flags,
                                 DType *anchor_flags, const DType *overlaps,
-                                int num_anchors, int num_labels) {
+                                const int num_anchors, const int num_labels) {
   int nbatch = blockIdx.x;
   gt_flags += nbatch * num_labels;
   overlaps += nbatch * num_anchors * num_labels;
   best_matches += nbatch * num_anchors;
   anchor_flags += nbatch * num_anchors;
-  const int num_threads = WARPS_PER_BLOCK * THREADS_PER_WARP;
-  __shared__ int max_indices_y[WARPS_PER_BLOCK * THREADS_PER_WARP];
-  __shared__ int max_indices_x[WARPS_PER_BLOCK * THREADS_PER_WARP];
-  __shared__ float max_values[WARPS_PER_BLOCK * THREADS_PER_WARP];
+  const int num_threads = kMaxThreadsPerBlock;
+  __shared__ int max_indices_y[kMaxThreadsPerBlock];
+  __shared__ int max_indices_x[kMaxThreadsPerBlock];
+  __shared__ float max_values[kMaxThreadsPerBlock];
 
   while (1) {
     // check if all done.
@@ -111,13 +110,14 @@ __global__ void FindBestMatches(DType *best_matches, DType *gt_flags,
 
 template<typename DType>
 __global__ void FindGoodMatches(DType *best_matches, DType *anchor_flags,
-                                const DType *overlaps, int num_anchors,
-                                int num_labels, float overlap_threshold) {
+                                const DType *overlaps, const int num_anchors,
+                                const int num_labels,
+                                const float overlap_threshold) {
   int nbatch = blockIdx.x;
   overlaps += nbatch * num_anchors * num_labels;
   best_matches += nbatch * num_anchors;
   anchor_flags += nbatch * num_anchors;
-  const int num_threads = WARPS_PER_BLOCK * THREADS_PER_WARP;
+  const int num_threads = kMaxThreadsPerBlock;
 
   for (int i = threadIdx.x; i < num_anchors; i += num_threads) {
     if (anchor_flags[i] < 0) {
@@ -139,7 +139,7 @@ __global__ void FindGoodMatches(DType *best_matches, DType *anchor_flags,
 }
 
 template<typename DType>
-__global__ void UseAllNegatives(DType *anchor_flags, int num) {
+__global__ void UseAllNegatives(DType *anchor_flags, const int num) {
   int idx = blockIdx.x * blockDim.x + threadIdx.x;
   if (idx >= num) return;
   if (anchor_flags[idx] < 0.5) {
@@ -150,17 +150,17 @@ __global__ void UseAllNegatives(DType *anchor_flags, int num) {
 template<typename DType>
 __global__ void NegativeMining(const DType *overlaps, const DType *cls_preds,
                                DType *anchor_flags, DType *buffer,
-                               float negative_mining_ratio,
-                               float negative_mining_thresh,
-                               int minimum_negative_samples,
-                               int num_anchors,
-                               int num_labels, int num_classes) {
+                               const float negative_mining_ratio,
+                               const float negative_mining_thresh,
+                               const int minimum_negative_samples,
+                               const int num_anchors,
+                               const int num_labels, const int num_classes) {
   int nbatch = blockIdx.x;
   overlaps += nbatch * num_anchors * num_labels;
   cls_preds += nbatch * num_classes * num_anchors;
   anchor_flags += nbatch * num_anchors;
   buffer += nbatch * num_anchors * 3;
-  const int num_threads = WARPS_PER_BLOCK * THREADS_PER_WARP;
+  const int num_threads = kMaxThreadsPerBlock;
   int num_positive;
   __shared__ int num_negative;
 
@@ -266,17 +266,18 @@ template<typename DType>
 __global__ void AssignTrainigTargets(DType *loc_target, DType *loc_mask,
                                      DType *cls_target, DType *anchor_flags,
                                      DType *best_matches, DType *labels,
-                                     DType *anchors, int num_anchors,
-                                     int num_labels, float vx, float vy,
-                                     float vw, float vh) {
-  int nbatch = blockIdx.x;
+                                     DType *anchors, const int num_anchors,
+                                     const int num_labels, const float vx,
+                                     const float vy, const float vw,
+                                     const float vh) {
+  const int nbatch = blockIdx.x;
   loc_target += nbatch * num_anchors * 4;
   loc_mask += nbatch * num_anchors * 4;
   cls_target += nbatch * num_anchors;
   anchor_flags += nbatch * num_anchors;
   best_matches += nbatch * num_anchors;
   labels += nbatch * num_labels * 5;
-  const int num_threads = WARPS_PER_BLOCK * THREADS_PER_WARP;
+  const int num_threads = kMaxThreadsPerBlock;
 
   for (int i = threadIdx.x; i < num_anchors; i += num_threads) {
     if (anchor_flags[i] > 0.5) {
@@ -325,15 +326,16 @@ inline void MultiBoxTargetForward(const Tensor<gpu, 2, DType> &loc_target,
                            const Tensor<gpu, 3, DType> &labels,
                            const Tensor<gpu, 3, DType> &cls_preds,
                            const Tensor<gpu, 4, DType> &temp_space,
-                           float overlap_threshold, float background_label,
-                           float negative_mining_ratio,
-                           float negative_mining_thresh,
-                           int minimum_negative_samples,
+                           const float overlap_threshold,
+                           const float background_label,
+                           const float negative_mining_ratio,
+                           const float negative_mining_thresh,
+                           const int minimum_negative_samples,
                            const std::vector<float> &variances) {
-  int num_batches = labels.size(0);
-  int num_labels = labels.size(1);
-  int num_anchors = anchors.size(0);
-  int num_classes = cls_preds.size(1);
+  const int num_batches = labels.size(0);
+  const int num_labels = labels.size(1);
+  const int num_anchors = anchors.size(0);
+  const int num_classes = cls_preds.size(1);
   CHECK_GE(num_batches, 1);
   CHECK_GT(num_labels, 2);
   CHECK_GE(num_anchors, 1);
@@ -341,10 +343,11 @@ inline void MultiBoxTargetForward(const Tensor<gpu, 2, DType> &loc_target,
   // init ground-truth flags, by checking valid labels
   temp_space[1] = 0.f;
   DType *gt_flags = temp_space[1].dptr_;
-  const int num_threads = THREADS_PER_WARP * WARPS_PER_BLOCK;
+  const int num_threads = cuda::kMaxThreadsPerBlock;
   dim3 init_thread_dim(num_threads);
   dim3 init_block_dim((num_batches * num_labels - 1) / num_threads + 1);
-  cuda::InitGroundTruthFlags<DType><<<init_block_dim, init_thread_dim, 0>>>(
+  cuda::CheckLaunchParam(init_block_dim, init_thread_dim, "MultiBoxTarget Init");
+  cuda::InitGroundTruthFlags<DType><<<init_block_dim, init_thread_dim>>>(
     gt_flags, labels.dptr_, num_batches, num_labels);
   MULTIBOX_TARGET_CUDA_CHECK(cudaPeekAtLastError());
 
@@ -354,6 +357,7 @@ inline void MultiBoxTargetForward(const Tensor<gpu, 2, DType> &loc_target,
   DType *anchor_flags = temp_space[2].dptr_;
   DType *best_matches = temp_space[3].dptr_;
   const DType *overlaps = temp_space[0].dptr_;
+  cuda::CheckLaunchParam(num_batches, num_threads, "MultiBoxTarget Matching");
   cuda::FindBestMatches<DType><<<num_batches, num_threads>>>(best_matches,
     gt_flags, anchor_flags, overlaps, num_anchors, num_labels);
   MULTIBOX_TARGET_CUDA_CHECK(cudaPeekAtLastError());
@@ -378,15 +382,16 @@ inline void MultiBoxTargetForward(const Tensor<gpu, 2, DType> &loc_target,
     MULTIBOX_TARGET_CUDA_CHECK(cudaPeekAtLastError());
   } else {
     int num_blocks = (num_batches * num_anchors - 1) / num_threads + 1;
+    cuda::CheckLaunchParam(num_blocks, num_threads, "MultiBoxTarget Negative");
     cuda::UseAllNegatives<DType><<<num_blocks, num_threads>>>(anchor_flags,
       num_batches * num_anchors);
     MULTIBOX_TARGET_CUDA_CHECK(cudaPeekAtLastError());
   }
 
-  cuda::AssignTrainigTargets<DType><<<num_batches, num_threads>>>(loc_target.dptr_,
-    loc_mask.dptr_, cls_target.dptr_, anchor_flags, best_matches, labels.dptr_,
-    anchors.dptr_, num_anchors, num_labels, variances[0], variances[1],
-    variances[2], variances[3]);
+  cuda::AssignTrainigTargets<DType><<<num_batches, num_threads>>>(
+    loc_target.dptr_, loc_mask.dptr_, cls_target.dptr_, anchor_flags,
+    best_matches, labels.dptr_, anchors.dptr_, num_anchors, num_labels,
+    variances[0], variances[1], variances[2], variances[3]);
   MULTIBOX_TARGET_CUDA_CHECK(cudaPeekAtLastError());
 }
 }  // namespace mshadow
