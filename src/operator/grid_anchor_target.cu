@@ -95,12 +95,12 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
     if (dist < buffer_size) {
       DType best_iou = -1;
       int best_pos = -1;
-      for (int i = 0; i < num_anchors; ++i) {
+      for (int j = 0; j < num_anchors; ++j) {
         DType iou;
-        CalculateOverlap(&iou, p_anchor, p_label + i * 5, num_spatial, 1);
+        CalculateOverlap(&iou, p_anchor + j * 4 * num_spatial, p_label + i * 5, num_spatial, 1);
         if (iou > best_iou) {
           best_iou = iou;
-          best_pos = i;
+          best_pos = j;
         }
       }
       if (p_cls_target[best_pos * num_spatial] > 0) {
