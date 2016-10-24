@@ -36,6 +36,15 @@ __device__ void DistanceToCenter(DType *dist, DType x, DType y, DType left, DTyp
 template<typename DType>
 __device__ void CalculateOverlap(DType *iou, const DType *a, const DType *b,
                                  int stride_a, int stride_b) {
+  // DType al = a[0];
+  // DType at = a[stride_a];
+  // DType ar = a[stride_a * 2];
+  // DType ab = a[stride_a * 3];
+  // DType bl = b[0];
+  // DType bt = b[stride_b];
+  // DType br = b[stride_b * 2];
+  // DType bb = b[stride_b * 3];
+  // if (threadIdx.x == 0) printf("%f, %f, %f, %f,---, %f, %f, %f, %f\n", al, at, ar, ab, bl, bt, br, bb);
   DType w = max(DType(0), min(a[2 * stride_a], b[2 * stride_b]) - max(a[0], b[0]));
   DType h = max(DType(0), min(a[3 * stride_a], b[3 * stride_b]) - max(a[stride_a], b[stride_b]));
   DType i = w * h;
@@ -97,11 +106,12 @@ __global__ void GridFindMatches(DType *cls_target, DType *box_target,
       int best_pos = -1;
       for (int j = 0; j < num_anchors; ++j) {
         DType iou;
-        CalculateOverlap(&iou, p_anchor + j * 4 * num_spatial, p_label + i * 5, num_spatial, 1);
+        CalculateOverlap(&iou, p_anchor + j * 4 * num_spatial, p_label + i * 5 + 1, num_spatial, 1);
         if (iou > best_iou) {
           best_iou = iou;
           best_pos = j;
         }
+        // if (threadIdx.x == 0) printf("best pos:%d\n", best_pos);
       }
       if (p_cls_target[best_pos * num_spatial] > 0) {
         // already marked as positive class, means conflict, mark as ignore
