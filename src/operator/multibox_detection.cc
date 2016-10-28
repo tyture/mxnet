@@ -52,12 +52,23 @@ inline void TransformLocations(DType *out, const DType *anchors,
 }
 
 template<typename DType>
+inline DType CalculateOverlap(const DType *a, const DType *b) {
+  DType w = std::max(DType(0), std::min(a[2], b[2]) - std::max(a[0], b[0]));
+  DType h = std::max(DType(0), std::min(a[3], b[3]) - std::max(a[1], b[1]));
+  DType i = w * h;
+  DType u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i;
+  return u <= 0.f ? static_cast<DType>(0) : static_cast<DType>(i / u);
+}
+
+template<typename DType>
 inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
                                      const Tensor<cpu, 3, DType> &cls_prob,
                                      const Tensor<cpu, 2, DType> &loc_pred,
                                      const Tensor<cpu, 2, DType> &anchors,
-                                     const float threshold, const bool clip,
-                                     const std::vector<float> &variances) {
+                                     const Tensor<cpu, 3, DType> &temp_space,
+                                     float threshold, bool clip,
+                                     const std::vector<float> &variances,
+                                     float nms_threshold, bool force_suppress) {
   CHECK_EQ(variances.size(), 4) << "Variance size must be 4";
   const int num_classes = cls_prob.size(1);
   const int num_anchors = cls_prob.size(2);
@@ -67,6 +78,7 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
     const DType *p_cls_prob = cls_prob.dptr_ + nbatch * num_classes * num_anchors;
     const DType *p_loc_pred = loc_pred.dptr_ + nbatch * num_anchors * 4;
     DType *p_out = out.dptr_ + nbatch * num_anchors * 6;
+    int valid_count = 0;
     for (int i = 0; i < num_anchors; ++i) {
       // find the predicted class id and probability
       DType score = -1;
@@ -81,72 +93,53 @@ inline void MultiBoxDetectionForward(const Tensor<cpu, 3, DType> &out,
       if (id > 0 && score < threshold) {
         id = 0;
       }
-      // [id, prob, xmin, ymin, xmax, ymax]
-      p_out[i * 6] = id - 1;  // remove background, restore original id
-      p_out[i * 6 + 1] = (id == 0 ? DType(-1) : score);
-      int offset = i * 4;
-      TransformLocations(p_out + i * 6 + 2, p_anchor + offset,
-        p_loc_pred + offset, clip, variances[0], variances[1],
-        variances[2], variances[3]);
+      if (id > 0) {
+        // [id, prob, xmin, ymin, xmax, ymax]
+        p_out[valid_count * 6] = id - 1;  // remove background, restore original id
+        p_out[valid_count * 6 + 1] = (id == 0 ? DType(-1) : score);
+        int offset = i * 4;
+        TransformLocations(p_out + valid_count * 6 + 2, p_anchor + offset,
+          p_loc_pred + offset, clip, variances[0], variances[1],
+          variances[2], variances[3]);
+        ++valid_count;
+      }
     }  // end iter num_anchors
-  }  // end iter batch
-}
 
-template<typename DType>
-inline DType CalculateOverlap(const DType *a, const DType *b) {
-  DType w = std::max(DType(0), std::min(a[2], b[2]) - std::max(a[0], b[0]));
-  DType h = std::max(DType(0), std::min(a[3], b[3]) - std::max(a[1], b[1]));
-  DType i = w * h;
-  DType u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i;
-  return u <= 0.f ? static_cast<DType>(0) : static_cast<DType>(i / u);
-}
+    if (valid_count < 1 || nms_threshold <= 0 || nms_threshold > 1) continue;
 
-template<typename DType>
-inline void NonMaximumSuppression(const Tensor<cpu, 3, DType> &out,
-                                  const Tensor<cpu, 3, DType> &temp_space,
-                                  const float nms_threshold,
-                                  const bool force_suppress) {
-  Copy(temp_space, out, out.stream_);
-  const int num_anchors = out.size(1);
-  const int num_batches = out.size(0);
-  for (int nbatch = 0; nbatch < num_batches; ++nbatch) {
-    DType *pout = out.dptr_ + nbatch * num_anchors * 6;
+    // sort and apply NMS
+    Copy(temp_space[nbatch], out[nbatch], out.stream_);
     // sort confidence in descend order
     std::vector<SortElemDescend<DType>> sorter;
-    sorter.reserve(num_anchors);
-    for (int i = 0; i < num_anchors; ++i) {
-      DType id = pout[i * 6];
-      if (id >= 0) {
-        sorter.push_back(SortElemDescend<DType>(pout[i * 6 + 1], i));
-      } else {
-        sorter.push_back(SortElemDescend<DType>(DType(0), i));
-      }
+    sorter.reserve(valid_count);
+    for (int i = 0; i < valid_count; ++i) {
+      sorter.push_back(SortElemDescend<DType>(p_out[i * 6 + 1], i));
     }
     std::stable_sort(sorter.begin(), sorter.end());
     // re-order output
     DType *ptemp = temp_space.dptr_ + nbatch * num_anchors * 6;
     for (std::size_t i = 0; i < sorter.size(); ++i) {
       for (int j = 0; j < 6; ++j) {
-        pout[i * 6 + j] = ptemp[sorter[i].index * 6 + j];
+        p_out[i * 6 + j] = ptemp[sorter[i].index * 6 + j];
       }
     }
     // apply nms
-    for (int i = 0; i < num_anchors; ++i) {
+    for (int i = 0; i < valid_count; ++i) {
       int offset_i = i * 6;
-      if (pout[offset_i] < 0) continue;  // skip eliminated
-      for (int j = i + 1; j < num_anchors; ++j) {
+      if (p_out[offset_i] < 0) continue;  // skip eliminated
+      for (int j = i + 1; j < valid_count; ++j) {
         int offset_j = j * 6;
-        if (pout[offset_j] < 0) continue;  // skip eliminated
-        if (force_suppress || (pout[offset_i] == pout[offset_j])) {
+        if (p_out[offset_j] < 0) continue;  // skip eliminated
+        if (force_suppress || (p_out[offset_i] == p_out[offset_j])) {
           // when foce_suppress == true or class_id equals
-          DType iou = CalculateOverlap(pout + offset_i + 2, pout + offset_j + 2);
+          DType iou = CalculateOverlap(p_out + offset_i + 2, p_out + offset_j + 2);
           if (iou >= nms_threshold) {
-            pout[offset_j] = -1;
+            p_out[offset_j] = -1;
           }
         }
       }
     }
-  }
+  }  // end iter batch
 }
 }  // namespace mshadow
 

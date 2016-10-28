@@ -146,10 +146,10 @@ class MultiBoxDetectionOp : public Operator {
        .get<xpu, 3, DType>(s);
      Tensor<xpu, 3, DType> temp_space = ctx.requested[mboxdet_enum::kTempSpace]
        .get_space_typed<xpu, 3, DType>(out.shape_, s);
-
-     MultiBoxDetectionForward(out, cls_prob, loc_pred, anchors,
-       param_.threshold, param_.clip, param_.variances.info);
-     NonMaximumSuppression(out, temp_space, param_.nms_threshold, param_.force_suppress);
+     out = -1.f;
+     MultiBoxDetectionForward(out, cls_prob, loc_pred, anchors, temp_space,
+       param_.threshold, param_.clip, param_.variances.info, param_.nms_threshold,
+       param_.force_suppress);
   }
 
   virtual void Backward(const OpContext &ctx,
