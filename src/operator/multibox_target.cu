@@ -111,7 +111,7 @@ __global__ void FindBestMatches(DType *best_matches, DType *gt_flags,
 template<typename DType>
 __global__ void FindGoodMatches(DType *best_matches, DType *anchor_flags,
                                 const DType *overlaps, const int num_anchors,
-                                const int num_labels,
+                                const int num_labels, const float confuse_ratio,
                                 const float overlap_threshold) {
   int nbatch = blockIdx.x;
   overlaps += nbatch * num_anchors * num_labels;
@@ -123,14 +123,17 @@ __global__ void FindGoodMatches(DType *best_matches, DType *anchor_flags,
     if (anchor_flags[i] < 0) {
       int idx = -1;
       float max_value = -1.f;
+      float second_max_value = -1.f;
       for (int j = 0; j < num_labels; ++j) {
         DType temp = overlaps[i * num_labels + j];
         if (temp > max_value) {
+          second_max_value = max_value;
           max_value = temp;
           idx = j;
         }
       }
-      if (max_value > overlap_threshold && (idx >= 0)) {
+      if (max_value > overlap_threshold && (idx >= 0) &&
+          (second_max_value / max_value < confuse_ratio)) {
         best_matches[i] = idx;
         anchor_flags[i] = 0.9f;
       }
@@ -330,6 +333,7 @@ inline void MultiBoxTargetForward(const Tensor<gpu, 2, DType> &loc_target,
                            const float background_label,
                            const float negative_mining_ratio,
                            const float negative_mining_thresh,
+                           const float confuse_ratio,
                            const int minimum_negative_samples,
                            const std::vector<float> &variances) {
   const int num_batches = labels.size(0);
@@ -365,7 +369,7 @@ inline void MultiBoxTargetForward(const Tensor<gpu, 2, DType> &loc_target,
   // find good matches with overlap > threshold
   if (overlap_threshold > 0) {
     cuda::FindGoodMatches<DType><<<num_batches, num_threads>>>(best_matches,
-      anchor_flags, overlaps, num_anchors, num_labels,
+      anchor_flags, overlaps, num_anchors, num_labels, confuse_ratio,
       overlap_threshold);
     MULTIBOX_TARGET_CUDA_CHECK(cudaPeekAtLastError());
   }

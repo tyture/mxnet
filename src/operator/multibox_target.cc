@@ -61,6 +61,7 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
                            const float background_label,
                            const float negative_mining_ratio,
                            const float negative_mining_thresh,
+                           const float confuse_ratio,
                            const int minimum_negative_samples,
                            const std::vector<float> &variances) {
   const DType *p_anchor = anchors.dptr_;
@@ -134,10 +135,12 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
           }
           const DType *pp_overlaps = p_overlaps + j * num_labels;
           int best_gt = -1;
-          int max_iou = -1.0f;
+          float max_iou = -1.0f;
+          float second_max_iou = -1.0f;
           for (int k = 0; k < num_valid_gt; ++k) {
             float iou = static_cast<float>(*(pp_overlaps + k));
             if (iou > max_iou) {
+              second_max_iou = max_iou;
               best_gt = k;
               max_iou = iou;
             }
@@ -147,7 +150,8 @@ inline void MultiBoxTargetForward(const Tensor<cpu, 2, DType> &loc_target,
             CHECK_EQ(max_matches[j].second, -1);
             max_matches[j].first = max_iou;
             max_matches[j].second = best_gt;
-            if (max_iou > overlap_threshold) {
+            if (max_iou > overlap_threshold &&
+                (second_max_iou / max_iou < confuse_ratio)) {
               num_positive += 1;
               // mark as visited
               gt_flags[best_gt] = true;

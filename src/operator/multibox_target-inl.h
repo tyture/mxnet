@@ -108,6 +108,7 @@ inline std::ostream &operator<<(std::ostream &os, const VarsInfo &size) {
 
 struct MultiBoxTargetParam : public dmlc::Parameter<MultiBoxTargetParam> {
   float overlap_threshold;
+  float confuse_ratio;
   float ignore_label;
   float negative_mining_ratio;
   float negative_mining_thresh;
@@ -116,6 +117,8 @@ struct MultiBoxTargetParam : public dmlc::Parameter<MultiBoxTargetParam> {
   DMLC_DECLARE_PARAMETER(MultiBoxTargetParam) {
     DMLC_DECLARE_FIELD(overlap_threshold).set_default(0.5f)
     .describe("Anchor-GT overlap threshold to be regarded as a possitive match.");
+    DMLC_DECLARE_FIELD(confuse_ratio).set_default(1.0f)
+    .describe("Ratio between best and second best IOU for each anchor to be positive.");
     DMLC_DECLARE_FIELD(ignore_label).set_default(-1.0f)
     .describe("Label for ignored anchors.");
     DMLC_DECLARE_FIELD(negative_mining_ratio).set_default(-1.0f)
@@ -216,6 +219,7 @@ class MultiBoxTargetOp : public Operator {
                           param_.ignore_label,
                           param_.negative_mining_ratio,
                           param_.negative_mining_thresh,
+                          param_.confuse_ratio,
                           param_.minimum_negative_samples,
                           param_.variances.info);
   }
