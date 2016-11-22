@@ -421,18 +421,19 @@ class DataParallelExecutorGroup(object):
         """
         for texec, islice in zip(self.execs, self.slices):
             labels_slice = []
-            for label, axis in zip(labels, self.label_layouts):
-                if axis == 0:
-                    # slicing NDArray along axis 0 can avoid copying
-                    labels_slice.append(label[islice])
-                elif axis > 0:
-                    # pylint: disable=no-member
-                    label_my_slice = nd.slice_axis(label, axis=axis, begin=islice.start,
-                                                   end=islice.stop).as_in_context(label.context)
-                    # pylint: enable=no-member
-                    labels_slice.append(label_my_slice)
-                else:
-                    labels_slice.append(label)
+            if labels:
+                for label, axis in zip(labels, self.label_layouts):
+                    if axis == 0:
+                        # slicing NDArray along axis 0 can avoid copying
+                        labels_slice.append(label[islice])
+                    elif axis > 0:
+                        # pylint: disable=no-member
+                        label_my_slice = nd.slice_axis(label, axis=axis, begin=islice.start,
+                                                       end=islice.stop).as_in_context(label.context)
+                        # pylint: enable=no-member
+                        labels_slice.append(label_my_slice)
+                    else:
+                        labels_slice.append(label)
 
             eval_metric.update(labels_slice, texec.outputs)
 
