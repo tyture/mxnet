@@ -105,8 +105,11 @@ class MultiFactorScheduler(LRScheduler):
                 raise ValueError("Schedule step must be an increasing integer list")
             if _step < 1:
                 raise ValueError("Schedule step must be greater or equal than 1 round")
-        if factor > 1.0:
-            raise ValueError("Factor must be no more than 1 to make lr reduce")
+        if not is isinstance(factor, list):
+            factor = [factor]
+        assert len(factor) == len(step)
+        if reduce(lambda x, y: x * y, factor, 1) > 1.0:
+            raise ValueError("Product of factors must be no more than 1 to make lr reduce")
         self.step = step
         self.cur_step_ind = 0
         self.factor = factor
@@ -127,7 +130,7 @@ class MultiFactorScheduler(LRScheduler):
             if num_update > self.step[self.cur_step_ind]:
                 self.count = self.step[self.cur_step_ind]
                 self.cur_step_ind += 1
-                self.base_lr *= self.factor
+                self.base_lr *= self.factor[self.cur_step_ind]
                 logging.info("Update[%d]: Change learning rate to %0.5e",
                              num_update, self.base_lr)
             else:
