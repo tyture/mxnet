@@ -213,10 +213,11 @@ def LightingAug(alphastd, eigval, eigvec):
         return [src]
     return aug
 
-def ColorNormalizeAug(mean, std):
+def ColorNormalizeAug(mean, std=None):
     """Mean and std normalization"""
     mean = nd.array(mean)
-    std = nd.array(std)
+    if std is not None:
+        std = nd.array(std)
     def aug(src):
         """Augumenter body"""
         return [color_normalize(src, mean, std)]
@@ -442,7 +443,6 @@ def CreateAugmenter(data_shape, resize=0, rand_crop=False, rand_resize=False, ra
     if std is True:
         std = np.array([58.395, 57.12, 57.375])
     if mean is not None:
-        assert std is not None
         auglist.append(ColorNormalizeAug(mean, std))
 
     return auglist
