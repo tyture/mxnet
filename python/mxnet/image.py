@@ -60,6 +60,12 @@ def resize_short(src, size, interp=2):
         new_h, new_w = size, size*w/h
     return imresize(src, new_w, new_h, interp=interp)
 
+def force_resize(src, size, interp=2):
+    """Force resize to size"""
+    new_h, new_w = map(int, size)
+    assert new_h > 0 and new_w > 0
+    return imresize(src, new_w, new_h, interp=interp)
+
 def fixed_crop(src, x0, y0, w, h, size=None, interp=2):
     """Crop src at fixed location, and (optionally) resize it to size"""
     out = nd.crop(src, begin=(y0, x0, 0), end=(y0+h, x0+w, int(src.shape[2])))
@@ -121,9 +127,10 @@ def random_size_crop(src, size, min_area, ratio, interp=2):
 
 def fixed_pad(src, x0, y0, w, h, pad_value, size=None, interp=2):
     """Pad src with target dimension, and (optionally) resize it to size"""
+    x0, y0, w, h = map(int, (x0, y0, w, h))
     assert x0 <= 0 and y0 <= 0 and w >= src.shape[1] and h >= src.shape[0]
-    dst = nd.full((h, w), pad_value)
-    dst[:, -y0:src.shape[0]-y0, -x0:src.shape[1]-x0] = src
+    dst = nd.full((h, w, src.shape[2]), pad_value, dtype=src.dtype)
+    dst[-y0:src.shape[0]-y0, -x0:src.shape[1]-x0, :] = src
     if size is not None and (w, h) != size:
         dst = imresize(dst, *size, interp=interp)
     return dst
@@ -133,6 +140,13 @@ def ResizeAug(size, interp=2):
     def aug(src):
         """Augumenter body"""
         return [resize_short(src, size, interp)]
+    return aug
+
+def ForceResizeAug(size, interp=2):
+    """Force resize to size regardless of aspect ratio"""
+    def aug(src):
+        """Augumenter body"""
+        return [force_resize(src, size, interp)]
     return aug
 
 def RandomCropAug(size, interp=2):
@@ -251,7 +265,7 @@ def ImageDetRandomSelectionAug(ts):
             ret = t(src, label)
             if ret:
                 random.shuffle(ret)
-                return ret[0]
+                return [ret[0]]
         return [(src, label)]
     return aug
 
@@ -265,16 +279,15 @@ def ImageDetHorizontalFlipAug(p):
         return [(src, label)]
     return aug
 
-def ImageDetRandomSizedCropAug(size, min_area, ratio, max_samples=1, max_trials=50,
-                               min_overlap=None, max_overlap=None,
+def ImageDetRandomSizedCropAug(min_area, ratio, max_samples=1, max_trials=25,
+                               max_area=1.0, min_overlap=None, max_overlap=None,
                                min_sample_coverage=None, max_sample_coverage=None,
                                min_obj_coverage=None, max_obj_coverage=None,
-                               obj_constraint='center', interp=2):
+                               obj_constraint='center', resize=None, interp=2):
     """Image Detection Random sized Cropping with Constraints"""
-    assert 0 < min_area and min_area <= 1
+    assert 0 < min_area and min_area <= max_area and max_area <= 1
     assert isinstance(ratio, (list, tuple)) and len(ratio) == 2
     assert min(ratio) > 0
-    assert 0 < min_overlap and min_overlap <= 1
 
     def check_crop_constraints(crop_box, label):
         if (not min_overlap and not max_overlap and not min_sample_coverage and
@@ -282,8 +295,7 @@ def ImageDetRandomSizedCropAug(size, min_area, ratio, max_samples=1, max_trials=
             return True
         # batch compute intersections and unions
         intersect_areas = np.maximum(0, np.minimum(label[:, 3], crop_box[2])
-            - np.maximum(label[:, 1], crop_box[0]))
-            * np.maximum(0, np.minimum(label[:, 4], crop_box[3])
+            - np.maximum(label[:, 1], crop_box[0])) * np.maximum(0, np.minimum(label[:, 4], crop_box[3])
             - np.maximum(label[:, 2], crop_box[1]))
         crop_area = (crop_box[2] - crop_box[0]) * (crop_box[3] - crop_box[1])
         obj_areas = (label[:, 3] - label[:, 1]) * (label[:, 4] - label[:, 2])
@@ -321,13 +333,12 @@ def ImageDetRandomSizedCropAug(size, min_area, ratio, max_samples=1, max_trials=
                 [center_x > crop_box[0],
                 center_x < crop_box[2],
                 center_y > crop_box[1],
-                center_y < crop_box[3]]))[0]
+                center_y < crop_box[3]], axis=0))[0]
             label = label[valid_mask, :]
         elif isinstance(obj_constraint, numeric_types):
             min_overlap = float(obj_constraint)
             intersect_areas = np.maximum(0, np.minimum(label[:, 3], crop_box[2])
-                - np.maximum(label[:, 1], crop_box[0]))
-                * np.maximum(0, np.minimum(label[:, 4], crop_box[3])
+                - np.maximum(label[:, 1], crop_box[0])) * np.maximum(0, np.minimum(label[:, 4], crop_box[3])
                 - np.maximum(label[:, 2], crop_box[1]))
             obj_areas = (label[:, 3] - label[:, 1]) * (label[:, 4] - label[:, 2])
             valid_mask = np.where(intersect_areas / obj_areas > min_overlap)[0]
@@ -335,6 +346,8 @@ def ImageDetRandomSizedCropAug(size, min_area, ratio, max_samples=1, max_trials=
         else:
             raise ValueError("Unknown constraint" + str(obj_constraint))
 
+        if len(valid_mask) < 1:
+            return None
         new_w = crop_box[2] - crop_box[0]
         new_h = crop_box[3] - crop_box[1]
         label[:, 1] = np.maximum(0, (label[:, 1] - crop_box[0]) / new_w)
@@ -349,34 +362,32 @@ def ImageDetRandomSizedCropAug(size, min_area, ratio, max_samples=1, max_trials=
         hh, ww = (float(h), float(w))
         ret = []
         for t in range(max_trials):
-            new_ratio = random.uniform(*ratio)
-            if new_ratio * h > w:
-                max_area = w * int(w / new_ratio)
-            else:
-                max_area = h * int(h * new_ratio)
-            new_area = min_area * h * w
-            if max_area < new_area:
-                 new_w, new_h = scale_down((w, h), size)
-                 x0 = random.randint(0, w - new_w)
-                 y0 = random.randint(0, h - new_h)
-            else:
-                new_area = random.uniform(new_area, max_area)
-                new_w = int(np.sqrt(new_area*new_ratio))
-                new_h = int(np.sqrt(new_area/new_ratio))
-                assert new_w <= w and new_h <= h
-                x0 = random.randint(0, w - new_w)
-                y0 = random.randint(0, h - new_h)
-            crop_box = (x0 / ww, y0 / hh, (x0 + new_w)/ww/2, (y0 + new_h)/hh/2)
+            new_area = random.uniform(min_area, max_area)
+            min_ratio = max(ratio[0], new_area * w / h)
+            max_ratio = min(ratio[1], w / new_area / h)
+            if min_ratio >= max_ratio:
+                continue
+            new_ratio = random.uniform(min_ratio, max_ratio)
+            new_area *= w * h
+            new_w = int(np.sqrt(new_area * new_ratio))
+            new_h = int(np.sqrt(new_area / new_ratio))
+            assert new_w <= w and new_h <= h
+            x0 = random.randint(0, w - new_w)
+            y0 = random.randint(0, h - new_h)
+
+            crop_box = (x0 / ww, y0 / hh, (x0 + new_w)/ww, (y0 + new_h)/hh)
             if check_crop_constraints(crop_box, label):
-                label = transform_crop_labels(crop_box, label)
-                src = fixed_crop(src, x0, y0, new_w, new_h, size=size, interp=interp)
-                ret.append((src, label))
+                new_label = transform_crop_labels(crop_box, label)
+                if new_label is None:
+                    continue
+                src = fixed_crop(src, x0, y0, new_w, new_h, size=resize, interp=interp)
+                ret.append((src, new_label))
             if len(ret) >= max_samples:
                 break
         return ret
     return aug
 
-def ImageDetRandomSizedPadAug(p, size, max_area, padval=128.0, interp=2):
+def ImageDetRandomSizedPadAug(p, max_area, padval=128.0, resize=None, interp=2):
     """Image Detection Random Sized Padding"""
     assert max_area > 1
 
@@ -394,14 +405,16 @@ def ImageDetRandomSizedPadAug(p, size, max_area, padval=128.0, interp=2):
         if random.random() < p:
             h, w, _ = src.shape
             hh, ww = (float(h), float(w))
-            expand_ratio = random.uniform((1.05, max_area))
+            expand_ratio = random.uniform(1.0, max_area)
+            if expand_ratio < 1.05:
+                return [(src, label)]
             new_w = expand_ratio * w
             new_h = expand_ratio * h
-            off_w = random.uniform((0, new_w - w))
-            off_h = random.uniform((0, new_h - h))
+            off_w = random.uniform(*(0, new_w - w))
+            off_h = random.uniform(*(0, new_h - h))
             pad_box = (-off_w / ww, -off_h / hh, (new_w - off_w) / ww, (new_h - off_h) / hh)
             label = transform_pad_labels(pad_box, label)
-            src = fixed_pad(src, off_w, off_h, new_w, new_h, padval, size=size, interp=interp)
+            src = fixed_pad(src, -off_w, -off_h, new_w, new_h, padval, size=resize, interp=interp)
         return [(src, label)]
     return aug
 
@@ -444,7 +457,6 @@ def CreateAugmenter(data_shape, resize=0, rand_crop=False, rand_resize=False, ra
         std = np.array([58.395, 57.12, 57.375])
     if mean is not None:
         auglist.append(ColorNormalizeAug(mean, std))
-
     return auglist
 
 
@@ -628,14 +640,12 @@ class ImageIter(io.DataIter):
 
         return io.DataBatch([batch_data], [batch_label], batch_size-1-i)
 
-def CreateDetAugmenter(data_shape, resize=0, rand_crop=[], rand_pad=None,
+def CreateDetAugmenter(data_shape, rand_crop=[], rand_pad=None,
                        rand_mirror=False, mean=None, std=None, brightness=0,
                        contrast=0, saturation=0, pca_noise=0, inter_method=2):
     """Create augmenter lists for image detection spatial transformations"""
+    auglist = []
     st_auglist = []  # for spatial transforms
-
-    if resize > 0:
-        auglist.append(ResizeAug(resize, inter_method))
 
     if rand_crop:
         crop_augs = []
@@ -649,12 +659,27 @@ def CreateDetAugmenter(data_shape, resize=0, rand_crop=[], rand_pad=None,
         st_auglist.append(ImageDetRandomSizedPadAug(**rand_pad))
 
     if rand_mirror:
-        st_auglist.append(ImageDetHorizontalFlipAug(p))
+        st_auglist.append(ImageDetHorizontalFlipAug(0.5))
 
-    auglist = CreateAugmenter(
-        data_shape, resize=resize, mean=mean, std=std,
-        brightness=brightness, contrast=contrast, saturation=saturation,
-        pca_noise=pca_noise, inter_method=inter_method)
+    auglist.append(ForceResizeAug((data_shape[1], data_shape[2])))
+    auglist.append(CastAug())
+
+    if brightness or contrast or saturation:
+        auglist.append(ColorJitterAug(brightness, contrast, saturation))
+
+    if pca_noise > 0:
+        eigval = np.array([55.46, 4.794, 1.148])
+        eigvec = np.array([[-0.5675, 0.7192, 0.4009],
+                           [-0.5808, -0.0045, -0.8140],
+                           [-0.5836, -0.6948, 0.4203]])
+        auglist.append(LightingAug(pca_noise, eigval, eigvec))
+
+    if mean is True:
+        mean = np.array([123.68, 116.28, 103.53])
+    if std is True:
+        std = np.array([58.395, 57.12, 57.375])
+    if mean is not None:
+        auglist.append(ColorNormalizeAug(mean, std))
 
     return [st_auglist, auglist]
 
@@ -699,10 +724,10 @@ class ImageDetIter(io.DataIter):
     kwargs : ...
         More arguments for creating augumenter. See mx.image.CreateDetAugmenter
     """
-    def __init__(self, batch_size, data_shape, path_imgrec=None,
-                 path_imglist=None, label_shape=None, label_name='label',
-                 cache_label=True, label_padval=-1.0, aug_list=None,
-                 **kwargs):
+    def __init__(self, batch_size, data_shape, path_imgrec=None, path_imgidx=None,
+                 path_imglist=None, path_root=None, label_shape=None, label_name='label',
+                 label_padval=-1.0, shuffle=False, part_index=0, num_parts=1,
+                 aug_list=None, imglist=None, **kwargs):
         super(ImageDetIter, self).__init__()
         assert(path_imgrec or path_imglist)
         if path_imgrec:
@@ -769,19 +794,24 @@ class ImageDetIter(io.DataIter):
             logging.info('estimating proper shape for label...')
             self.reset()
             max_len = 0
-            for orig_label in iter(self.next_label):
-                max_len = max(max_len, len(orig_label))
-            assert len(max_len) > 0 and max_len % 5 == 0
+            try:
+                while 1:
+                    orig_label = self.next_label()
+                    max_len = max(max_len, len(orig_label))
+            except StopIteration:
+                pass
+            assert max_len > 0 and max_len % 5 == 0
             self.label_shape = (max_len // 5, 5)
+            self.reset()
 
         if label_shape:
             if self.label_shape:
-                if any(map(a < b for a, b in zip(label_shape, self.label_shape))):
+                if any(a < b for a, b in zip(label_shape, self.label_shape)):
                     logging.warning('label_shape shrinks in certain dims')
             self.label_shape = label_shape
             assert all(v > 0 for v in self.label_shape)
         self.provide_data = [('data', (self.batch_size,) + self.data_shape)]
-        self.provide_label = [(self.label_name, (self.batch_size,) + self.label_shape)]
+        self.provide_label = [(self.label_name, (self.batch_size,) + tuple(self.label_shape))]
 
     def reset(self):
         if self.shuffle:
@@ -851,21 +881,21 @@ class ImageDetIter(io.DataIter):
         try:
             while i < batch_size:
                 label, s = self.next_sample()
-                label = [np.array(label).reshape((-1, 5))]
-                data = [imdecode(s)]
+                label = np.array(label).astype(np.float32).reshape((-1, 5))
+                data = imdecode(s)
+                pairs = [(data, label)]
                 if len(data[0].shape) == 0:
                     logging.debug('Invalid image, skipping.')
                     continue
                 # apply sptial transformations before other augs
                 for aug in self.auglist[0]:
-                    pairs = [ret for src, l in zip(data, label) for ret in aug(src, l)]
+                    pairs = [ret for p in pairs for ret in aug(p[0], p[1])]
                 for aug in self.auglist[1]:
-                    pairs = [(ret, l) for src, l in pairs for ret in aug(src)]
+                    pairs = [(ret, p[1]) for p in pairs for ret in aug(p[0])]
                 for d, l in pairs:
                     assert i < batch_size, 'Batch size must be multiples of augmenter output length'
                     batch_data[i][:] = nd.transpose(d, axes=(2, 0, 1))
-                    slices = [slice(0, i) for i in l.shape]
-                    batch_label[i][slices] = l
+                    batch_label[i][0:l.shape[0]][:] = l
                     i += 1
         except StopIteration:
             if not i:

@@ -105,7 +105,7 @@ class MultiFactorScheduler(LRScheduler):
                 raise ValueError("Schedule step must be an increasing integer list")
             if _step < 1:
                 raise ValueError("Schedule step must be greater or equal than 1 round")
-        if not is isinstance(factor, list):
+        if not isinstance(factor, list):
             factor = [factor]
         assert len(factor) == len(step)
         if reduce(lambda x, y: x * y, factor, 1) > 1.0:
