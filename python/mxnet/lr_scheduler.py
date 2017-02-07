@@ -129,8 +129,8 @@ class MultiFactorScheduler(LRScheduler):
         while self.cur_step_ind <= len(self.step)-1:
             if num_update > self.step[self.cur_step_ind]:
                 self.count = self.step[self.cur_step_ind]
-                self.cur_step_ind += 1
                 self.base_lr *= self.factor[self.cur_step_ind]
+                self.cur_step_ind += 1
                 logging.info("Update[%d]: Change learning rate to %0.5e",
                              num_update, self.base_lr)
             else:
