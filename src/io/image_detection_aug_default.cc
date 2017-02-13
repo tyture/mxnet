@@ -1,6 +1,6 @@
 /*!
  *  Copyright (c) 2015 by Contributors
- * \file image_aug_default.cc
+ * \file image_detection_aug_default.cc
  * \brief Default augmenter.
  */
 #include <mxnet/base.h>
@@ -22,7 +22,7 @@ namespace mxnet {
 namespace io {
 
 /*! \brief image augmentation parameters*/
-struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentParam> {
+struct DefaultImageDetectionAugmentParam : public dmlc::Parameter<DefaultImageDetectionAugmentParam> {
   /*! \brief resize shorter edge to size before applying other augmentations */
   int resize;
   /*! \brief whether we do random cropping */
@@ -66,7 +66,7 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
   /*! \brief shape of the image data*/
   TShape data_shape;
   // declare parameters
-  DMLC_DECLARE_PARAMETER(DefaultImageAugmentParam) {
+  DMLC_DECLARE_PARAMETER(DefaultImageDetectionAugmentParam) {
     DMLC_DECLARE_FIELD(resize).set_default(-1)
         .describe("Augmentation Param: scale shorter edge to size "
                   "before applying other augmentations.");
@@ -114,10 +114,10 @@ struct DefaultImageAugmentParam : public dmlc::Parameter<DefaultImageAugmentPara
   }
 };
 
-DMLC_REGISTER_PARAMETER(DefaultImageAugmentParam);
+DMLC_REGISTER_PARAMETER(DefaultImageDetectionAugmentParam);
 
-std::vector<dmlc::ParamFieldInfo> ListDefaultAugParams() {
-  return DefaultImageAugmentParam::__FIELDS__();
+std::vector<dmlc::ParamFieldInfo> ListDefaultDetectionAugParams() {
+  return DefaultImageDetectionAugmentParam::__FIELDS__();
 }
 
 #if MXNET_USE_OPENCV
@@ -125,11 +125,72 @@ std::vector<dmlc::ParamFieldInfo> ListDefaultAugParams() {
 #ifdef _MSC_VER
 #define M_PI CV_PI
 #endif
+
+/*! \brief helper class for better detection label handling */
+class ImageDetectionLabel {
+ public:
+   struct ImageDetectionObject {
+     float id;
+     float left;
+     float top;
+     float right;
+     float bottom;
+     std::vector<float> extra;
+   }
+   explicit ImageDetectionLabel(std::vector<float> &raw_label) {
+     from_array(raw_label);
+   }
+
+   void from_array(std::vector<float> &raw_label) {
+     int label_width = static_cast<int>(raw_label.size());
+     CHECK_GE(label_width, 7);  // at least 2(header) + 5(1 object)
+     int header_width = static_cast<int>(label[0]);
+     CHECK_GE(header_width, 2);
+     object_width_ = static_cast<int>(label[1]);
+     CHECK_GE(object_width_, 5);  // id, x1, y1, x2, y2...
+     header_.assign(raw_label.begin(), raw_label.begin() + header_width);
+     int num = (label_width - header_width) / object_width_;
+     CHECK_EQ((label_width - header_width) % object_width_, 0);
+     objects.reserve(num);
+     for (std::size_t i = header_width; i < label_width; i += object_width_) {
+       ImageDetectionObject obj;
+       obj.id = raw_label[i++];
+       obj.left = raw_label[i++];
+       obj.top = raw_label[i++];
+       obj.right = raw_label[i++];
+       obj.bottom = raw_label[i++];
+       obj.extra.assign(raw_label.begin() + i, raw_label.begin() + i + object_width_ - 5);
+       objects.push_back(obj);
+     }
+   }
+
+   std::vector<float> to_array() const {
+     std::vector<float> out(header_);
+     out.reserve(out.size() + objects.size() * object_width_);
+     for (auto& obj : objects) {
+       out.push_back(obj.id);
+       out.push_back(obj.left);
+       out.push_back(obj.top);
+       out.push_back(obj.right);
+       out.push_back(obj.bottom);
+       out.insert(out.end(), obj.extra.begin(), obj.extra.end());
+     }
+     return out;
+   }
+
+   std::vector<ImageDetectionObject> objects;
+
+ private:
+   /*! \brief  */
+   int object_width_;
+   std::vector<float> header_;
+};  // class ImageDetectionLabel
+
 /*! \brief helper class to do image augmentation */
-class DefaultImageAugmenter : public ImageAugmenter {
+class DefaultImageDetectionAugmenter : public ImageAugmenter {
  public:
   // contructor
-  DefaultImageAugmenter() {
+  DefaultImageDetectionAugmenter() {
     rotateM_ = cv::Mat(2, 3, CV_32F);
   }
   void Init(const std::vector<std::pair<std::string, std::string> >& kwargs) override {
@@ -169,7 +230,7 @@ class DefaultImageAugmenter : public ImageAugmenter {
       return inter_method;
     }
   }
-  cv::Mat Process(const cv::Mat &src, std::vector<float> &label,
+  cv::Mat Process(const cv::Mat &src,
                   common::RANDOM_ENGINE *prnd) override {
     using mshadow::index_t;
     cv::Mat res;
@@ -317,7 +378,7 @@ class DefaultImageAugmenter : public ImageAugmenter {
   // rotation param
   cv::Mat rotateM_;
   // parameters
-  DefaultImageAugmentParam param_;
+  DefaultImageDetectionAugmentParam param_;
   /*! \brief list of possible rotate angle */
   std::vector<int> rotate_list_;
 };
@@ -326,10 +387,10 @@ ImageAugmenter* ImageAugmenter::Create(const std::string& name) {
   return dmlc::Registry<ImageAugmenterReg>::Find(name)->body();
 }
 
-MXNET_REGISTER_IMAGE_AUGMENTER(aug_default)
-.describe("default augmenter")
+MXNET_REGISTER_IMAGE_DETECTION_AUGMENTER(detection_aug_default)
+.describe("default detection augmenter")
 .set_body([]() {
-    return new DefaultImageAugmenter();
+    return new DefaultImageDetectionAugmenter();
   });
 #endif  // MXNET_USE_OPENCV
 }  // namespace io
