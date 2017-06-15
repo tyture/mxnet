@@ -142,11 +142,11 @@ def get_symbol_train(num_classes=20, nms_thresh=0.5, force_suppress=False, nms_t
 
     cls_prob = mx.symbol.SoftmaxOutput(data=cls_preds, label=cls_target, \
         ignore_label=-1, use_ignore=True, grad_scale=1., multi_output=True, \
-        normalization='valid', name="cls_prob")
+        normalization='null', name="cls_prob")
     loc_loss_ = mx.symbol.smooth_l1(name="loc_loss_", \
         data=loc_target_mask * (loc_preds - loc_target), scalar=1.0)
     loc_loss = mx.symbol.MakeLoss(loc_loss_, grad_scale=1., \
-        normalization='valid', name="loc_loss")
+        normalization='null', name="loc_loss")
 
     # monitoring training status
     cls_label = mx.symbol.MakeLoss(data=cls_target, grad_scale=0, name="cls_label")
