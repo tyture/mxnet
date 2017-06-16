@@ -141,7 +141,7 @@ def get_symbol_train(num_classes=20, nms_thresh=0.5, force_suppress=False, nms_t
     loc_loss_ = mx.symbol.smooth_l1(name="loc_loss_", \
         data=loc_target_mask * (loc_preds - loc_target), scalar=1.0)
     loc_loss = mx.symbol.MakeLoss(loc_loss_, grad_scale=1., \
-        normalization='null', name="loc_loss")
+        normalization='size', name="loc_loss")
 
     # monitoring training status
     cls_label = mx.symbol.MakeLoss(data=cls_target, grad_scale=0, name="cls_label")

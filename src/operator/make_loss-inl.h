@@ -22,7 +22,7 @@ namespace op {
 namespace make_loss_enum {
 enum MakeLossOpInputs {kData};
 enum MakeLossOpOutputs {kOut};
-enum MakeLossOpType {kNull, kBatch, kValid};
+enum MakeLossOpType {kNull, kBatch, kValid, kSize};
 enum MakeLossOpResource {kTempSpace};
 }  // namespace make_loss_enum
 
@@ -40,11 +40,14 @@ struct MakeLossParam : public dmlc::Parameter<MakeLossParam> {
     .add_enum("null", make_loss_enum::kNull)
     .add_enum("batch", make_loss_enum::kBatch)
     .add_enum("valid", make_loss_enum::kValid)
+    .add_enum("size", make_loss_enum::kSize)
     .set_default(make_loss_enum::kNull)
     .describe("If this is set to null, the output gradient will not be normalized. "
               "If this is set to batch, the output gradient will be divided by the batch size. "
               "If this is set to valid, the output gradient will be divided by the number of "
-              "valid input elements.");
+              "valid input elements. "
+              "If this is set to size, the output gradient will be divided by element size
+              (in each batch).");
   }
 };
 
@@ -93,7 +96,10 @@ class MakeLossOp : public Operator {
         broadcast_keepdim(temp, 0, grad.shape_[0]), grad.shape_));
     } else if (param_.normalization == make_loss_enum::kBatch) {
       Assign(grad, req[make_loss_enum::kData],
-        ScalarExp<DType>(param_.grad_scale / grad.shape_[0]));
+        ScalarExp<DType>(param_.grad_scale / in_grad[make_loss_enum::kData].shape_[0]));
+    } else if (param_.normalization == make_loss_enum::kSize) {
+      int count = grad.Size() / in_grad[make_loss_enum::kData].shape_[0];
+      Assign(grad, req[make_loss_enum::kData], ScalarExp<DType>(param_.grad_scale / count));
     } else {
       Assign(grad, req[make_loss_enum::kData], ScalarExp<DType>(param_.grad_scale));
     }
