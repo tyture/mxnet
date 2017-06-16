@@ -98,7 +98,7 @@ class MakeLossOp : public Operator {
       Assign(grad, req[make_loss_enum::kData],
         ScalarExp<DType>(param_.grad_scale / in_grad[make_loss_enum::kData].shape_[0]));
     } else if (param_.normalization == make_loss_enum::kSize) {
-      int count = grad.Size() / in_grad[make_loss_enum::kData].shape_[0];
+      int count = grad.shape_.Size() / in_grad[make_loss_enum::kData].shape_[0];
       Assign(grad, req[make_loss_enum::kData], ScalarExp<DType>(param_.grad_scale / count));
     } else {
       Assign(grad, req[make_loss_enum::kData], ScalarExp<DType>(param_.grad_scale));
