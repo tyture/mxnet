@@ -46,8 +46,8 @@ struct MakeLossParam : public dmlc::Parameter<MakeLossParam> {
               "If this is set to batch, the output gradient will be divided by the batch size. "
               "If this is set to valid, the output gradient will be divided by the number of "
               "valid input elements. "
-              "If this is set to size, the output gradient will be divided by element size
-              (in each batch).");
+              "If this is set to size, the output gradient will be divided by element size "
+              "(in each batch).");
   }
 };
 
