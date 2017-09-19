@@ -56,6 +56,7 @@ if __name__ == '__main__':
     from mxnet.gluon.model_zoo import vision
     inputs = mx.sym.var('data')
     sym = vision.get_model(args.network)(inputs)
+    sym = mx.sym.SoftmaxOutput(sym, name='softmax')
 
     # train
     fit.fit(args, sym, data.get_rec_iter)
