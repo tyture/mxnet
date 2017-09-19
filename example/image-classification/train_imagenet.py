@@ -54,7 +54,8 @@ if __name__ == '__main__':
     # net = import_module('symbols.'+args.network)
     # sym = net.get_symbol(**vars(args))
     from mxnet.gluon.model_zoo import vision
-    sym = vision.get_model(args.network)
+    inputs = mx.sym.var('data')
+    sym = vision.get_model(args.network)(inputs)
 
     # train
     fit.fit(args, sym, data.get_rec_iter)
