@@ -57,6 +57,7 @@ if __name__ == '__main__':
     net = vision.get_model(args.network)
     inputs = mx.sym.var('data')
     sym = net(inputs)
+    sym = mx.sym.SoftmaxOutput(sym)
 
     # train
     fit.fit(args, sym, data.get_rec_iter)
