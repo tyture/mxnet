@@ -55,8 +55,8 @@ if __name__ == '__main__':
     # net = import_module('symbols.'+args.network)
     # sym = net.get_symbol(**vars(args))
     net = vision.get_model(args.network)
-    data = mx.sym.var('data')
-    sym = net(data)
+    inputs = mx.sym.var('data')
+    sym = net(inputs)
 
     # train
     fit.fit(args, sym, data.get_rec_iter)
