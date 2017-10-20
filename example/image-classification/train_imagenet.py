@@ -22,6 +22,7 @@ logging.basicConfig(level=logging.DEBUG)
 from common import find_mxnet, data, fit
 from common.util import download_file
 import mxnet as mx
+from mxnet.gluon.model_zoo import vision
 
 if __name__ == '__main__':
     # parse args
@@ -50,9 +51,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # load network
-    from importlib import import_module
-    net = import_module('symbols.'+args.network)
-    sym = net.get_symbol(**vars(args))
+    # from importlib import import_module
+    # net = import_module('symbols.'+args.network)
+    # sym = net.get_symbol(**vars(args))
+    net = vision.get_model(args.network)
+    data = mx.sym.var('data')
+    sym = net(data)
 
     # train
     fit.fit(args, sym, data.get_rec_iter)
