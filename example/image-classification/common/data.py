@@ -28,6 +28,8 @@ def add_data_args(parser):
     data.add_argument('--data-val-idx', type=str, default='', help='the index of validation data')
     data.add_argument('--rgb-mean', type=str, default='123.68,116.779,103.939',
                       help='a tuple of size 3 for the mean rgb')
+    data.add_argument('--rgb-std', type=str, default='58.395,57.12,57.375',
+                      help='a tuple of size 3 for the mean std')
     data.add_argument('--pad-size', type=int, default=0,
                       help='padding the input image')
     data.add_argument('--image-shape', type=str,
@@ -119,6 +121,7 @@ def get_rec_iter(args, kv=None):
     else:
         (rank, nworker) = (0, 1)
     rgb_mean = [float(i) for i in args.rgb_mean.split(',')]
+    rgb_std = [float(i) for i in args.rgb_std.split(',')]
     train = mx.io.ImageRecordIter(
         path_imgrec         = args.data_train,
         path_imgidx         = args.data_train_idx,
@@ -126,6 +129,9 @@ def get_rec_iter(args, kv=None):
         mean_r              = rgb_mean[0],
         mean_g              = rgb_mean[1],
         mean_b              = rgb_mean[2],
+        std_r               = rgb_std[0],
+        std_g               = rgb_std[1],
+        std_b               = rgb_std[2],
         data_name           = 'data',
         label_name          = 'softmax_label',
         data_shape          = image_shape,
@@ -155,6 +161,9 @@ def get_rec_iter(args, kv=None):
         mean_r              = rgb_mean[0],
         mean_g              = rgb_mean[1],
         mean_b              = rgb_mean[2],
+        std_r               = rgb_std[0],
+        std_g               = rgb_std[1],
+        std_b               = rgb_std[2],
         data_name           = 'data',
         label_name          = 'softmax_label',
         batch_size          = args.batch_size,
