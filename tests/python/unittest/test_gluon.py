@@ -553,7 +553,10 @@ def test_lambda():
     assert_almost_equal(out1.asnumpy(), out3.asnumpy())
 
 
-
+def test_dtype():
+    net = mx.gluon.model_zoo.vision.resnet18_v1()
+    net.initialize()
+    net(mx.nd.ones((16, 3, 32, 32), dtype='float64')).wait_to_read()
 
 
 if __name__ == '__main__':
