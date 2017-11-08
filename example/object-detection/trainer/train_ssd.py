@@ -7,7 +7,7 @@ import mxnet as mx
 from mxnet import nd
 from mxnet import gluon
 from mxnet import autograd as ag
-from dataset.dataloader import DataLoader
+from dataset.dataloader import _batchify, _mp_batchify
 from dataset import VOCDetection
 from dataset import transform
 from config import config as cfg
@@ -19,7 +19,16 @@ from trainer.metric import Accuracy, SmoothL1, LossRecorder, MultiBoxMetric
 from trainer.debugger import super_print, find_abnormal
 from evaluation.eval_metric import VOC07MApMetric, MApMetric
 
-def train_net(model, dataset, data_shape, batch_size, end_epoch, lr, momentum, wd, log_interval=50,
+def ctx_as_list(ctx):
+    if isinstance(ctx, mx.Context):
+        ctx = [ctx]
+    return ctx
+
+def get_worker():
+    import multiprocessing as mp
+    return max(1, mp.cpu_count() // 2)
+
+def train_net(model, dataset, data_shape, batch_size, end_epoch, lr, momentum, wd, cpu_worker=-1, log_interval=50,
               pretrained=0, seed=None, log_file=None, dev=False, ctx=mx.cpu(), **kwargs):
     """Wrapper function for entire training phase.
 
@@ -44,6 +53,9 @@ def train_net(model, dataset, data_shape, batch_size, end_epoch, lr, momentum, w
     if len(data_shape) == 1:
         data_shape = data_shape * 2
 
+    if cpu_worker < 1:
+        cpu_worker = get_worker()
+
     if dataset == 'voc':
         # dataset
         num_class = 20
@@ -55,18 +67,12 @@ def train_net(model, dataset, data_shape, batch_size, end_epoch, lr, momentum, w
     else:
         raise NotImplementedError("Dataset {} not supported.".format(dataset))
 
-    train_data = DataLoader(train_dataset, batch_size, True, last_batch='rollover')
-    val_data = DataLoader(val_dataset, batch_size, False, last_batch='keep')
+    train_data = gluon.data.DataLoader(train_dataset, batch_size, True, last_batch='rollover', batchify_fn=_mp_batchify, num_workers=cpu_worker)
+    val_data = gluon.data.DataLoader(val_dataset, batch_size, False, last_batch='keep', batchify_fn=_mp_batchify, num_workers=cpu_worker)
 
     net = model_zoo.get_detection_model(model, pretrained=pretrained, classes=num_class, ctx=ctx)
     if dev:
         print(net)
-
-    def ctx_as_list(ctx):
-        if isinstance(ctx, mx.Context):
-            ctx = [ctx]
-        return ctx
-
 
 
     # logging.debug(str(val_dataset))

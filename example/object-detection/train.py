@@ -42,6 +42,8 @@ def parse_args():
                         help="Random seed, -1 to disable fixed seed.")
     parser.add_argument('--dev', type=int, default=0,
                         help="Turn on develop mode with verbose informations.")
+    parser.add_argument('--worker', dest='cpu_worker', type=int, default=-1,
+                        help="number of cpu workers for preprocessing, use -1 to auto-estimate.")
     # parser.add_argument('--lr-steps', dest='lr_refactor_step', type=str, default='80, 160',
     #                     help='refactor learning rate at specified epochs')
     # parser.add_argument('--lr-factor', dest='lr_refactor_ratio', type=str, default=0.1,
@@ -67,6 +69,7 @@ if __name__ == '__main__':
                             pretrained=args.pretrained,
                             log_file=args.log_file,
                             dev=args.dev,
-                            ctx=ctx)
+                            ctx=ctx,
+                            cpu_worker=args.cpu_worker)
     else:
         raise NotImplementedError("Training algorithm {} not supported.".format(args.algorithm))
