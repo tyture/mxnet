@@ -27,7 +27,7 @@ def _batchify(data):
 def _mp_batchify(data):
     """Collate data into batch. Multi-worker version."""
     if isinstance(data[0], nd.NDArray):
-        out = nd.empty((len(data),) + data[0].shape, dtype=data[0].type,
+        out = nd.empty((len(data),) + data[0].shape, dtype=data[0].dtype,
                        ctx=mx.context.Context('cpu_shared', 0))
         return nd.stack(*data, out=out)
     elif isinstance(data[0], tuple):
@@ -41,7 +41,7 @@ def _mp_batchify(data):
         buf = np.full((batch_size, pad, data[0].shape[-1]), -1, dtype=data[0].dtype)
         for i, l in enumerate(data):
             buf[i][:l.shape[0], :] = l
-        return nd.array(buf, dtype=data[0].dtype, ctx=context.Context('cpu_shared', 0))
+        return nd.array(buf, dtype=data[0].dtype, ctx=mx.context.Context('cpu_shared', 0))
 
 
 class DataLoader(object):

@@ -54,7 +54,7 @@ def train_net(model, dataset, data_shape, batch_size, end_epoch, lr, momentum, w
     if len(data_shape) == 1:
         data_shape = data_shape * 2
 
-    if cpu_worker < 1:
+    if cpu_worker < 0:
         cpu_worker = get_worker()
 
     if dataset == 'voc':
