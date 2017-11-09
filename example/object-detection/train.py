@@ -46,6 +46,8 @@ def parse_args():
                         help='refactor learning rate at specified epochs')
     parser.add_argument('--lr-factor', dest='lr_factor', type=str, default='0.1',
                         help='ratio to refactor learning rate, can be float or list of floats.')
+    parser.add_argument('--worker', dest='cpu_worker', type=int, default=-1,
+                        help='cpu worker for data preprossing. Use -1 to auto estimate.')
     # parser.add_argument('--freeze', dest='freeze_pattern', type=str, default="^(conv1_|conv2_).*",
     #                     help='freeze layer pattern')
     args = parser.parse_args()
