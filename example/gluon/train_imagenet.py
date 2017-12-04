@@ -66,26 +66,28 @@ def get_model(model, resume, pretrained):
     net.hybridize()
     return net
 
-class Transform(object):
-    """Transform function."""
-    def __init__(self, augs):
-        self._augs = augs
+def train_transform(image, label):
+    image = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
+    image = mx.nd.image.random_horizontal_flip(image)
+    image = mx.nd.image.to_tensor(x)
+    image = mx.nd.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+    return image, label
 
-    def __call__(self, image, label):
-        for a in self._augs:
-            image = a(image)
-        return image, label
+def val_transform(image, label):
+    image = mx.image.resize_short(image, 256)
+    image = mx.image.center_crop(image, (224, 224))
+    image = mx.nd.image.to_tensor(x)
+    image = mx.nd.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+    return image, label
 
 def get_dataloader(root, batch_size, num_workers):
     """Dataset loader with preprocessing."""
     train_dir = os.path.join(root, 'train')
-    train_dataset = ImageFolderDataset(
-        train_dir, transform=Transform([RandomSizedCropAug((224, 224), 0.08, (3/4., 4/3.)), HorizontalFlipAug(0.5)]))
+    train_dataset = ImageFolderDataset(train_dir, transform=train_transform)
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
     val_dir = os.path.join(root, 'val')
-    val_dataset = ImageFolderDataset(
-        val_dir, transform=Transform([ResizeAug(256), CenterCropAug(224)]))
+    val_dataset = ImageFolderDataset(val_dir, transform=val_transform)
     val_data = DataLoader(val_dataset, batch_size, last_batch='keep', num_workers=num_workers)
     return train_data, val_data
 
@@ -95,21 +97,8 @@ def update_learning_rate(lr, trainer, epoch, ratio, steps):
     trainer.set_learning_rate(new_lr)
     return trainer
 
-
-class Preprocess(gluon.HybridBlock):
-    """Preprocess block for training/testing."""
-    def __init__(self, is_train, **kwargs):
-        super(Preprocess, self).__init__(**kwargs)
-        self.is_train = is_train
-
-    def hybrid_forward(self, F, x, *args):
-        x = F.image.to_tensor(x)
-        x = F.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return x
-
 def validate(net, val_data, metrics, ctx):
     """Validation."""
-    preprocesser = Preprocess(False)
     for m in metrics:
         m.reset()
     for i, batch in enumerate(val_data):
@@ -117,7 +106,6 @@ def validate(net, val_data, metrics, ctx):
         label = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0)
         outputs = []
         for x, y in zip(data, label):
-            x = preprocesser(x)
             z = net(x)
             outputs.append(z)
         for m in metrics:
@@ -128,7 +116,6 @@ def validate(net, val_data, metrics, ctx):
 
 def train(net, train_data, val_data, ctx, args):
     """Training"""
-    preprocesser = Preprocess(True)
     criterion = gluon.loss.SoftmaxCrossEntropyLoss()
     metrics = [mx.metric.Accuracy(), mx.metric.TopKAccuracy(5)]
     lr_steps = [int(x) for x in args.lr_steps.split(',') if x.strip()]
@@ -151,8 +138,6 @@ def train(net, train_data, val_data, ctx, args):
             losses = []
             with autograd.record():
                 for x, y in zip(data, label):
-                    with autograd.pause():
-                        x = preprocesser(x)
                     z = net(x)
                     losses.append(criterion(z, y))
                     outputs.append(z)
