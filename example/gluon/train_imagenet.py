@@ -119,6 +119,7 @@ def train(net, train_data, val_data, ctx, args):
     criterion = gluon.loss.SoftmaxCrossEntropyLoss()
     metrics = [mx.metric.Accuracy(), mx.metric.TopKAccuracy(5)]
     lr_steps = [int(x) for x in args.lr_steps.split(',') if x.strip()]
+    net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(net.collect_params(), 'sgd',
                             {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum},
                             kvstore = args.kvstore)
