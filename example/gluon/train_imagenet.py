@@ -67,7 +67,7 @@ def get_model(model, resume, pretrained):
     return net
 
 def train_transform(image, label):
-    image = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
+    image, _ = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
     image = mx.nd.image.random_horizontal_flip(image)
     image = mx.nd.image.to_tensor(x)
     image = mx.nd.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
@@ -75,7 +75,7 @@ def train_transform(image, label):
 
 def val_transform(image, label):
     image = mx.image.resize_short(image, 256)
-    image = mx.image.center_crop(image, (224, 224))
+    image, _ = mx.image.center_crop(image, (224, 224))
     image = mx.nd.image.to_tensor(x)
     image = mx.nd.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
     return image, label
