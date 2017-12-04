@@ -10,7 +10,7 @@ from mxnet import autograd
 from mxnet.gluon import nn
 from mxnet.gluon.data.vision import ImageFolderDataset
 from mxnet.gluon.data import DataLoader
-from mxnet.image import SequentialAug, RandomSizedCropAug, ResizeAug, CenterCropAug
+from mxnet.image import SequentialAug, RandomSizedCropAug, ResizeAug, CenterCropAug, HorizontalFlipAug
 logging.basicConfig(level=logging.INFO)
 
 def parse_args():
