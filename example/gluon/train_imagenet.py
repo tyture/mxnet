@@ -33,7 +33,7 @@ def parse_args():
                         help='initial learning rate')
     parser.add_argument('--momentum', default=0.9, type=float,
                         help='momentum')
-    parser.add_argument('--weight-decay', '--wd', default=1e-4, type=float,
+    parser.add_argument('--weight-decay', '--wd', dest='wd', default=1e-4, type=float,
                         help='weight decay (default: 1e-4)')
     parser.add_argument('--log-interval', '-p', default=10, type=int,
                         help='print frequency (default: 10)')
