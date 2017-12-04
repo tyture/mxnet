@@ -107,6 +107,7 @@ class Preprocess(gluon.HybridBlock):
             x = F.image.random_horizontal_flip(x)
         x = F.image.to_tensor(x)
         x = F.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        x = F.transpose(x, axes=(0, 3, 1, 2))
         return x
 
 def validate(net, val_data, metrics, ctx):
