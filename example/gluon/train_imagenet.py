@@ -66,16 +66,26 @@ def get_model(model, resume, pretrained):
     net.hybridize()
     return net
 
+class Transform(object):
+    """Transform function."""
+    def __init__(self, augs):
+        self._augs = augs
+
+    def __call__(self, image, label):
+        for a in self._augs:
+            image = a(image)
+        return image, label
+
 def get_dataloader(root, batch_size, num_workers):
     """Dataset loader with preprocessing."""
     train_dir = os.path.join(root, 'train')
     train_dataset = ImageFolderDataset(
-        train_dir, transform=RandomSizedCropAug(224, 0.08, (3/4., 4/3.)))
+        train_dir, transform=Transform([RandomSizedCropAug(224, 0.08, (3/4., 4/3.))]))
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
     val_dir = os.path.join(root, 'val')
     val_dataset = ImageFolderDataset(
-        val_dir, transform=SequentialAug([ResizeAug(256), CenterCropAug(224)]))
+        val_dir, transform=Transform([ResizeAug(256), CenterCropAug(224)]))
     val_data = DataLoader(val_dataset, batch_size, last_batch='keep', num_workers=num_workers)
     return train_data, val_data
 
