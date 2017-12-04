@@ -3,6 +3,7 @@ import argparse
 import shutil
 import time
 import logging
+import numpy as np
 import mxnet as mx
 from mxnet import gluon
 from mxnet import autograd
@@ -80,7 +81,7 @@ def get_dataloader(root, batch_size, num_workers):
 
 def update_learning_rate(lr, trainer, epoch, ratio, steps):
     """Set the learning rate to the initial value decayed by ratio every N epochs."""
-    new_lr = lr * (ratio ** (epoch // step))
+    new_lr = lr * (ratio ** int(np.sum(np.array(steps) < epoch)))
     trainer.set_learning_rate(new_lr)
     return trainer
 
