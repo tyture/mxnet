@@ -54,7 +54,7 @@ def parse_args():
 
 def get_model(model, resume, pretrained):
     """Model initialization."""
-    net = gluon.data.vision.get_model(model, pretrained)
+    net = gluon.model_zoo.vision.get_model(model, pretrained)
     if resume:
         net.load_params(resume)
     elif not pretrained:
