@@ -80,7 +80,7 @@ def get_dataloader(root, batch_size, num_workers):
     """Dataset loader with preprocessing."""
     train_dir = os.path.join(root, 'train')
     train_dataset = ImageFolderDataset(
-        train_dir, transform=Transform([RandomSizedCropAug((224, 224), 0.08, (3/4., 4/3.))]))
+        train_dir, transform=Transform([RandomSizedCropAug((224, 224), 0.08, (3/4., 4/3.)), HorizontalFlipAug(0.5)]))
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
     val_dir = os.path.join(root, 'val')
@@ -103,11 +103,8 @@ class Preprocess(gluon.HybridBlock):
         self.is_train = is_train
 
     def hybrid_forward(self, F, x, *args):
-        if self.is_train:
-            x = F.image.random_horizontal_flip(x)
         x = F.image.to_tensor(x)
         x = F.image.normalize(x, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        x = F.transpose(x, axes=(0, 3, 1, 2))
         return x
 
 def validate(net, val_data, metrics, ctx):
