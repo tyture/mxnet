@@ -80,7 +80,7 @@ def get_dataloader(root, batch_size, num_workers):
     """Dataset loader with preprocessing."""
     train_dir = os.path.join(root, 'train')
     train_dataset = ImageFolderDataset(
-        train_dir, transform=Transform([RandomSizedCropAug(224, 0.08, (3/4., 4/3.))]))
+        train_dir, transform=Transform([RandomSizedCropAug((224, 224), 0.08, (3/4., 4/3.))]))
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
     val_dir = os.path.join(root, 'val')
