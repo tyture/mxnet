@@ -78,7 +78,7 @@ def get_dataloader(root, batch_size, num_workers):
     val_data = DataLoader(val_dataset, batch_size, last_batch='keep', num_workers=num_workers)
     return train_data, val_data
 
-def update_learning_rate(lr, trainer, epoch, ratio=0.1, steps):
+def update_learning_rate(lr, trainer, epoch, ratio, steps):
     """Set the learning rate to the initial value decayed by ratio every N epochs."""
     new_lr = lr * (ratio ** (epoch // step))
     trainer.set_learning_rate(new_lr)
@@ -114,7 +114,7 @@ def validate(net, val_data, metrics, ctx):
         for m in metrics:
             m.update(labels, outputs)
 
-    msg = ','.join(['%s=%f'%(*m.get()) for m in metrics])
+    msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
     return msg, m[0].get()[1]
 
 def train(net, train_data, val_data, ctx, args):
@@ -123,7 +123,7 @@ def train(net, train_data, val_data, ctx, args):
     criterion = gluon.loss.SoftmaxCrossEntropyLoss()
     metrics = [mx.metric.Accuracy(), mx.metric.TopKAccuracy(5)]
     lr_steps = [int(x) for x in args.lr_steps.split(',') if x.strip()]
-    trainer = gluon.Trainer(net.collect_params(), optimizer_params='sgd',
+    trainer = gluon.Trainer(net.collect_params(), 'sgd',
                             {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum},
                             kvstore = args.kvstore)
 
@@ -153,12 +153,12 @@ def train(net, train_data, val_data, ctx, args):
             for m in metrics:
                 m.update(labels, outputs)
             if args.log_interval and (i + 1) % args.log_interval == 0:
-                msg = ','.join(['%s=%f'%(*m.get()) for m in metrics])
+                msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
                 logging.info('Epoch[%d] Batch[%d]\tSpeed: %f samples/sec\t%s',
                              epoch, i, batch_size/(time.time()-btic), msg)
             btic = time.time()
 
-        msg = ','.join(['%s=%f'%(*m.get()) for m in metrics])
+        msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
         logging.info('[Epoch %d] Training: %s', epoch, msg)
         logging.info('[Epoch %d] Training time cost: %f', epoch, time.time()-tic)
         msg, top1 = validate(net, val_data, metrics, ctx)
