@@ -72,7 +72,7 @@ def get_dataloader(root, batch_size, num_workers):
         train_dir, transform=RandomSizedCropAug(224, 0.08, (3/4., 4/3.)))
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
-    val_dir = os.path.join(root, 'val')]
+    val_dir = os.path.join(root, 'val')
     val_dataset = ImageFolderDataset(
         val_dir, transform=SequentialAug([ResizeAug(256), CenterCropAug(224)]))
     val_data = DataLoader(val_dataset, batch_size, last_batch='keep', num_workers=num_workers)
