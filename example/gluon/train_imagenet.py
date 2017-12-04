@@ -109,7 +109,7 @@ def validate(net, val_data, metrics, ctx):
             z = net(x)
             outputs.append(z)
         for m in metrics:
-            m.update(labels, outputs)
+            m.update(label, outputs)
 
     msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
     return msg, m[0].get()[1]
@@ -146,7 +146,7 @@ def train(net, train_data, val_data, ctx, args):
             batch_size = batch[0].shape[0]
             trainer.step(batch_size)
             for m in metrics:
-                m.update(labels, outputs)
+                m.update(label, outputs)
             if args.log_interval and (i + 1) % args.log_interval == 0:
                 msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
                 logging.info('Epoch[%d] Batch[%d]\tSpeed: %f samples/sec\t%s',
