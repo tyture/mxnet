@@ -130,8 +130,8 @@ def train(net, train_data, val_data, ctx, args):
 
     from data import imagenet_iterator
     train_data, val_data = imagenet_iterator(
-        '~/efs/users/joshuazz/data/imagenet/record/train_480_q95.rec',
-        '~/efs/users/joshuazz/data/imagenet/record/train_256_q95.rec',
+        '/home/ubuntu/efs/users/joshuazz/data/imagenet/record/train_480_q95.rec',
+        '/home/ubuntu/efs/users/joshuazz/data/imagenet/record/val_256_q90.rec',
         args.batch_size, (3, 224, 224))
     # start training
     best_acc = 0
@@ -187,7 +187,8 @@ if __name__ == '__main__':
     # get the network
     net = get_model(args.model, args.resume, args.pretrained)
     # get the dataset
-    train_data, val_data = get_dataloader(args.data, args.batch_size, args.num_workers)
+    # train_data, val_data = get_dataloader(args.data, args.batch_size, args.num_workers)
+    train_data, val_data = (None, None)
     # set up contexts
     ctx = [mx.gpu(int(i)) for i in args.gpus.split(',') if i.strip()]
     ctx = [mx.cpu()] if not ctx else ctx
