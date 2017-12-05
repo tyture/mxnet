@@ -118,7 +118,6 @@ def train(net, train_data, val_data, ctx, args):
     """Training"""
     criterion = gluon.loss.SoftmaxCrossEntropyLoss()
     metrics = [mx.metric.Accuracy(), mx.metric.TopKAccuracy(5)]
-    metric = mx.metric.Accuracy()
     lr_steps = [int(x) for x in args.lr_steps.split(',') if x.strip()]
     net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(net.collect_params(), 'sgd',
@@ -128,10 +127,9 @@ def train(net, train_data, val_data, ctx, args):
     # start training
     best_acc = 0
     for epoch in range(args.start_epoch, args.epochs):
-        # trainer = update_learning_rate(args.lr, trainer, epoch, args.lr_factor, lr_steps)
-        # for m in metrics:
-            # m.reset()
-        metric.reset()
+        trainer = update_learning_rate(args.lr, trainer, epoch, args.lr_factor, lr_steps)
+        for m in metrics:
+            m.reset()
         tic = time.time()
         btic = time.time()
         for i, batch in enumerate(train_data):
@@ -148,18 +146,15 @@ def train(net, train_data, val_data, ctx, args):
                 autograd.backward(losses)
             batch_size = args.batch_size
             trainer.step(batch_size)
-            # for m in metrics:
-                # m.update(label, outputs)
-            metric.update(label, outputs)
+            for m in metrics:
+                m.update(label, outputs)
             if args.log_interval and (i + 1) % args.log_interval == 0:
-                # msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
-                msg = '%s=%f'%(metric.get())
+                msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
                 logging.info('Epoch[%d] Batch[%d]\tSpeed: %f samples/sec\t%s',
                              epoch, i, batch_size/(time.time()-btic), msg)
             btic = time.time()
 
-        # msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
-        msg = '%s=%f'%(metric.get())
+        msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
         logging.info('[Epoch %d] Training: %s', epoch, msg)
         logging.info('[Epoch %d] Training time cost: %f', epoch, time.time()-tic)
         msg, top1 = validate(net, val_data, metrics, ctx)
