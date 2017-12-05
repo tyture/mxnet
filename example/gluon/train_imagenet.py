@@ -129,7 +129,7 @@ def train(net, train_data, val_data, ctx, args):
     # start training
     best_acc = 0
     for epoch in range(args.start_epoch, args.epochs):
-        trainer = update_learning_rate(args.lr, trainer, epoch, args.lr_factor, lr_steps)
+        # trainer = update_learning_rate(args.lr, trainer, epoch, args.lr_factor, lr_steps)
         for m in metrics:
             m.reset()
         tic = time.time()
