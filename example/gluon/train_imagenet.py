@@ -143,8 +143,8 @@ def train(net, train_data, val_data, ctx, args):
         tic = time.time()
         btic = time.time()
         for i, batch in enumerate(train_data):
-            data = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0)
-            label = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0)
+            data = gluon.utils.split_and_load(batch.data[0], ctx_list=ctx, batch_axis=0)
+            label = gluon.utils.split_and_load(batch.label[0], ctx_list=ctx, batch_axis=0)
             outputs = []
             losses = []
             with autograd.record():
@@ -154,7 +154,8 @@ def train(net, train_data, val_data, ctx, args):
                     losses.append(L)
                     outputs.append(z)
                 autograd.backward(losses)
-            batch_size = batch[0].shape[0]
+            # batch_size = batch[0].shape[0]
+            batch_size = args.batch_size
             trainer.step(batch_size)
             # for m in metrics:
                 # m.update(label, outputs)
