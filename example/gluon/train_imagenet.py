@@ -142,7 +142,7 @@ def train(net, train_data, val_data, ctx, args):
                     z = net(x)
                     losses.append(criterion(z, y))
                     outputs.append(z)
-            autograd.backward(losses)
+                autograd.backward(losses)
             batch_size = batch[0].shape[0]
             trainer.step(batch_size)
             for m in metrics:
