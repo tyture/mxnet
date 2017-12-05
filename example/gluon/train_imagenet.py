@@ -69,8 +69,9 @@ def get_model(model, resume, pretrained):
 def train_transform(image, label):
     # image, _ = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
     # image = mx.nd.image.random_horizontal_flip(image)
-    image = mx.image.resize_short(image, 256)
-    image, _ = mx.image.center_crop(image, (224, 224))
+    # image = mx.image.resize_short(image, 256)
+    image = mx.image.imresize(image, (224, 224))
+    # image, _ = mx.image.center_crop(image, (224, 224))
     image = mx.nd.transpose(image, (2, 0, 1)).astype('float32')
     # image = mx.nd.image.to_tensor(image)
     # image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
@@ -128,11 +129,6 @@ def train(net, train_data, val_data, ctx, args):
                             {'learning_rate': args.lr, 'wd': args.wd, 'momentum': args.momentum},
                             kvstore = args.kvstore)
 
-    from data import imagenet_iterator
-    train_data, val_data = imagenet_iterator(
-        '/home/ubuntu/efs/users/joshuazz/data/imagenet/record/train_480_q95.rec',
-        '/home/ubuntu/efs/users/joshuazz/data/imagenet/record/val_256_q90.rec',
-        args.batch_size, (3, 224, 224))
     # start training
     best_acc = 0
     for epoch in range(args.start_epoch, args.epochs):
@@ -143,8 +139,8 @@ def train(net, train_data, val_data, ctx, args):
         tic = time.time()
         btic = time.time()
         for i, batch in enumerate(train_data):
-            data = gluon.utils.split_and_load(batch.data[0], ctx_list=ctx, batch_axis=0)
-            label = gluon.utils.split_and_load(batch.label[0], ctx_list=ctx, batch_axis=0)
+            data = gluon.utils.split_and_load(batch[0], ctx_list=ctx, batch_axis=0)
+            label = gluon.utils.split_and_load(batch[1], ctx_list=ctx, batch_axis=0)
             outputs = []
             losses = []
             with autograd.record():
@@ -154,7 +150,6 @@ def train(net, train_data, val_data, ctx, args):
                     losses.append(L)
                     outputs.append(z)
                 autograd.backward(losses)
-            # batch_size = batch[0].shape[0]
             batch_size = args.batch_size
             trainer.step(batch_size)
             # for m in metrics:
@@ -188,8 +183,7 @@ if __name__ == '__main__':
     # get the network
     net = get_model(args.model, args.resume, args.pretrained)
     # get the dataset
-    # train_data, val_data = get_dataloader(args.data, args.batch_size, args.num_workers)
-    train_data, val_data = (None, None)
+    train_data, val_data = get_dataloader(args.data, args.batch_size, args.num_workers)
     # set up contexts
     ctx = [mx.gpu(int(i)) for i in args.gpus.split(',') if i.strip()]
     ctx = [mx.cpu()] if not ctx else ctx
