@@ -140,7 +140,8 @@ def train(net, train_data, val_data, ctx, args):
             with autograd.record():
                 for x, y in zip(data, label):
                     z = net(x)
-                    losses.append(criterion(z, y))
+                    L = criterion(z, y)
+                    losses.append(L)
                     outputs.append(z)
                 autograd.backward(losses)
             batch_size = batch[0].shape[0]
