@@ -70,7 +70,7 @@ def train_transform(image, label):
     # image, _ = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
     # image = mx.nd.image.random_horizontal_flip(image)
     # image = mx.image.resize_short(image, 256)
-    image = mx.image.imresize(image, (224, 224))
+    image = mx.image.imresize(image, 224, 224)
     # image, _ = mx.image.center_crop(image, (224, 224))
     image = mx.nd.transpose(image, (2, 0, 1)).astype('float32')
     # image = mx.nd.image.to_tensor(image)
