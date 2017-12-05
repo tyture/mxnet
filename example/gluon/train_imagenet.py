@@ -129,9 +129,10 @@ def train(net, train_data, val_data, ctx, args):
                             kvstore = args.kvstore)
 
     from data import imagenet_iterator
-    train_data, val_data = imagenet_iterator('~/efs/users/joshuazz/data/imagenet/record/train_480_q95.rec',
-                                             '~/efs/users/joshuazz/data/imagenet/record/val_480_q95.rec',
-                                             args.batch_size, (3, 224, 224))
+    train_data, val_data = imagenet_iterator(
+        '~/efs/users/joshuazz/data/imagenet/record/train_480_q95.rec',
+        '~/efs/users/joshuazz/data/imagenet/record/val_480_q95.rec',
+        args.batch_size, (3, 224, 224))
     # start training
     best_acc = 0
     for epoch in range(args.start_epoch, args.epochs):
