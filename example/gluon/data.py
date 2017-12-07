@@ -95,7 +95,6 @@ def imagenet_iterator(train_data, val_data, batch_size, data_shape, resize=-1):
         max_random_rotate_angle = 10,
         max_shear_ratio         = 0.1,
         max_aspect_ratio        = 0.25,
-        min_crop_size           = 32,
         fill_value              = 127,
         min_random_scale        = 0.533)
 
