@@ -85,7 +85,6 @@ def imagenet_iterator(train_data, val_data, batch_size, data_shape, resize=-1):
         std_b                   = 57.375,
         preprocess_threads      = 32,
         shuffle                 = True,
-        shuffle_chunk_size      = 2,
         batch_size              = batch_size,
         rand_crop               = True,
         resize                  = resize,

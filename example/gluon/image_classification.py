@@ -75,10 +75,8 @@ parser.add_argument('--lr-factor', default=0.1, type=float,
                     help='learning rate decay ratio')
 parser.add_argument('--lr-steps', default='30,60,90', type=str,
                     help='list of learning rate decay epochs as in str')
-parser.add_argument('--prefix', default='', type=str,
+parser.add_argument('--prefix', default='./', type=str,
                     help='path to checkpoint')
-parser.add_argument('--resume', default='', type=str,
-                    help='path to resuming checkpoint')
 opt = parser.parse_args()
 
 logging.info(opt)
