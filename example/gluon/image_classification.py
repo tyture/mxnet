@@ -135,7 +135,7 @@ def test(ctx):
 def adjust_learning_rate(lr, trainer, epoch, ratio, steps):
     """Set the learning rate to the initial value decayed by ratio given steps."""
     new_lr = lr * (ratio ** int(np.sum(np.array(steps) < epoch)))
-    if not trainer.get_learning_rate() == new_lr:
+    if not trainer.learning_rate() == new_lr:
         trainer.set_learning_rate(new_lr)
         logging.info("Adjust learning rate to %f", new_lr)
     return trainer
