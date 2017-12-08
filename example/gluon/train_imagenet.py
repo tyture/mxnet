@@ -55,7 +55,7 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def get_model(model, resume, pretrained):
+def get_model(model, resume, pretrained, dtype='float32'):
     """Model initialization."""
     net = gluon.model_zoo.vision.get_model(model, pretrained=pretrained, classes=1000)
     if resume:
@@ -65,6 +65,7 @@ def get_model(model, resume, pretrained):
             net.intialize(mx.init.Normal())
         else:
             net.initialize(mx.init.Xavier(magnitude=2))
+    net.cast(dtype)
     net.hybridize()
     return net
 
@@ -74,14 +75,14 @@ def get_transform_function(dtype='float32'):
         image = mx.nd.image.random_horizontal_flip(image)
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return image.astype(dtype), label
+        return nd.cast(image, dtype), label
 
     def val_transform(image, label):
         image = mx.image.resize_short(image, 256)
         image, _ = mx.image.center_crop(image, (224, 224))
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return image.astype(dtype), label
+        return nd.cast(image, dtype), label
     return train_transform, val_transform
 
 def get_dataloader(root, batch_size, num_workers, dtype='float32'):
@@ -177,7 +178,7 @@ if __name__ == '__main__':
     args = parse_args()
     logging.info(args)
     # get the network
-    net = get_model(args.model, args.resume, args.pretrained)
+    net = get_model(args.model, args.resume, args.pretrained, args.dtype)
     # get the dataset
     train_data, val_data = get_dataloader(
         args.data, args.batch_size, args.num_workers, args.dtype)
