@@ -89,10 +89,12 @@ def get_dataloader(root, batch_size, num_workers, dtype='float32'):
     """Dataset loader with preprocessing."""
     train_dir = os.path.join(root, 'train')
     train_transform, val_transform = get_transform_function(dtype)
+    logging.info("Loading image folder %s, this may take a bit long...", train_dir)
     train_dataset = ImageFolderDataset(train_dir, transform=train_transform)
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
     val_dir = os.path.join(root, 'val')
+    logging.info("Loading image folder %s, this may take a bit long...", val_dir)
     val_dataset = ImageFolderDataset(val_dir, transform=val_transform)
     val_data = DataLoader(val_dataset, batch_size, last_batch='keep', num_workers=num_workers)
     return train_data, val_data
