@@ -198,6 +198,7 @@ def train(epochs, ctx):
             logging.info(
                 "[Epoch %d] Saved checkpoint to %s, acc: %.4f.",
                 epoch, model_name, best_acc * 100)
+    logging.info("Training epoch %d finished, best accuracy: %.4f.", epochs, best_acc * 100)
 
 def main():
     if opt.mode == 'symbolic':

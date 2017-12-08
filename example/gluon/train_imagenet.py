@@ -50,6 +50,8 @@ def parse_args():
                         help='learning rate decay ratio')
     parser.add_argument('--lr-steps', default='30,60,90', type=str,
                         help='list of learning rate decay epochs as in str')
+    parser.add_argument('--dtype', default='float32', type=str,
+                        help='data type, float32 or float16 if applicable')
     args = parser.parse_args()
     return args
 
@@ -59,30 +61,33 @@ def get_model(model, resume, pretrained):
     if resume:
         net.load_params(resume)
     elif not pretrained:
-        if model in ['alexnet']:
+        if model in ['alexnet'] + ['mobilenet' + v for v in ['1.0', '0.5', '0.25']]:
             net.intialize(mx.init.Normal())
         else:
             net.initialize(mx.init.Xavier(magnitude=2))
     net.hybridize()
     return net
 
-def train_transform(image, label):
-    image, _ = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
-    image = mx.nd.image.random_horizontal_flip(image)
-    image = mx.nd.image.to_tensor(image)
-    image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-    return image, label
+def get_transform_function(dtype='float32'):
+    def train_transform(image, label):
+        image, _ = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
+        image = mx.nd.image.random_horizontal_flip(image)
+        image = mx.nd.image.to_tensor(image)
+        image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        return image.astype(dtype), label.astype(dtype)
 
-def val_transform(image, label):
-    image = mx.image.resize_short(image, 256)
-    image, _ = mx.image.center_crop(image, (224, 224))
-    image = mx.nd.image.to_tensor(image)
-    image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-    return image, label
+    def val_transform(image, label):
+        image = mx.image.resize_short(image, 256)
+        image, _ = mx.image.center_crop(image, (224, 224))
+        image = mx.nd.image.to_tensor(image)
+        image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        return image.astype(dtype), label.astype(dtype)
+    return train_transform, val_transform
 
-def get_dataloader(root, batch_size, num_workers):
+def get_dataloader(root, batch_size, num_workers, dtype='float32'):
     """Dataset loader with preprocessing."""
     train_dir = os.path.join(root, 'train')
+    train_transform, val_transform = get_transform_function(dtype)
     train_dataset = ImageFolderDataset(train_dir, transform=train_transform)
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
                             last_batch='rollover', num_workers=num_workers)
@@ -174,7 +179,8 @@ if __name__ == '__main__':
     # get the network
     net = get_model(args.model, args.resume, args.pretrained)
     # get the dataset
-    train_data, val_data = get_dataloader(args.data, args.batch_size, args.num_workers)
+    train_data, val_data = get_dataloader(
+        args.data, args.batch_size, args.num_workers, args.dtype)
     # set up contexts
     ctx = [mx.gpu(int(i)) for i in args.gpus.split(',') if i.strip()]
     ctx = [mx.cpu()] if not ctx else ctx
