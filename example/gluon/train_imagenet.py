@@ -62,7 +62,7 @@ def get_model(model, resume, pretrained, dtype='float32'):
         net.load_params(resume)
     elif not pretrained:
         if model in ['alexnet'] + ['mobilenet' + v for v in ['1.0', '0.5', '0.25']]:
-            net.intialize(mx.init.Normal())
+            net.initialize(mx.init.Normal())
         else:
             net.initialize(mx.init.Xavier(magnitude=2))
     net.cast(dtype)
