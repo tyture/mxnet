@@ -75,14 +75,14 @@ def get_transform_function(dtype='float32'):
         image = mx.nd.image.random_horizontal_flip(image)
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return nd.cast(image, dtype), label
+        return mx.nd.cast(image, dtype), label
 
     def val_transform(image, label):
         image = mx.image.resize_short(image, 256)
         image, _ = mx.image.center_crop(image, (224, 224))
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        return nd.cast(image, dtype), label
+        return mx.nd.cast(image, dtype), label
     return train_transform, val_transform
 
 def get_dataloader(root, batch_size, num_workers, dtype='float32'):
