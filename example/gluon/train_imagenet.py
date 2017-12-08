@@ -130,7 +130,7 @@ def train(net, train_data, val_data, ctx, args):
     net.collect_params().reset_ctx(ctx)
     trainer = gluon.Trainer(net.collect_params(), 'sgd',
                             {'learning_rate': args.lr, 'wd': args.wd,
-                            'momentum': args.momentum, multi_precision: True},
+                            'momentum': args.momentum, 'multi_precision': True},
                             kvstore = args.kvstore)
 
     # start training
