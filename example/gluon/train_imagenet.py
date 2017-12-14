@@ -52,6 +52,8 @@ def parse_args():
                         help='list of learning rate decay epochs as in str')
     parser.add_argument('--dtype', default='float32', type=str,
                         help='data type, float32 or float16 if applicable')
+    parser.add_argument('--save-frequent', default=10, type=int,
+                        help='model save frequent, best model will always be saved') 
     args = parser.parse_args()
     return args
 
@@ -169,12 +171,15 @@ def train(net, train_data, val_data, ctx, args):
         msg, top1 = validate(net, val_data, metrics, ctx)
         logging.info('[Epoch %d] Validation: %s', epoch, msg)
 
-        fname = os.path.join(args.prefix, '%s_%d_acc_%.4f.params'%(args.model, epoch, top1))
-        net.save_params(fname)
-        logging.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
+        if args.save_frequency and (epoch + 1) % args.save_frequency == 0:
+            fname = os.path.join(args.prefix, '%s_%d_acc_%.4f.params' % (args.model, epoch, top1))
+            net.save_params(fname)
+            logging.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
         if top1 > best_acc:
             best_acc = top1
-            net.save_params(os.path.join(args.prefix, '%s_best_acc_%.4f.params'%(args.model, top1)))
+            fname = os.path.join(args.prefix, '%s_%d_best.params' % (args.model, epoch))
+            net.save_params(fname)
+            logging.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1) 
 
 
 if __name__ == '__main__':
