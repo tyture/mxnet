@@ -72,7 +72,7 @@ def get_model(model, resume, pretrained, dtype='float32'):
 def get_transform_function(dtype='float32'):
     def train_transform(image, label):
         image, _ = mx.image.random_size_crop(image, (224, 224), 0.08, (3/4., 4/3.))
-        image = mx.nd.image.random_horizontal_flip(image)
+        image = mx.nd.image.random_flip_left_right(image)
         image = mx.nd.image.to_tensor(image)
         image = mx.nd.image.normalize(image, mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
         return mx.nd.cast(image, dtype), label
@@ -92,7 +92,7 @@ def get_dataloader(root, batch_size, num_workers, dtype='float32'):
     logging.info("Loading image folder %s, this may take a bit long...", train_dir)
     train_dataset = ImageFolderDataset(train_dir, transform=train_transform)
     train_data = DataLoader(train_dataset, batch_size, shuffle=True,
-                            last_batch='rollover', num_workers=num_workers)
+                            last_batch='discard', num_workers=num_workers)
     val_dir = os.path.join(root, 'val')
     logging.info("Loading image folder %s, this may take a bit long...", val_dir)
     val_dataset = ImageFolderDataset(val_dir, transform=val_transform)
@@ -120,7 +120,7 @@ def validate(net, val_data, metrics, ctx):
             m.update(label, outputs)
 
     msg = ','.join(['%s=%f'%(m.get()) for m in metrics])
-    return msg, m[0].get()[1]
+    return msg, metrics[0].get()[1]
 
 def train(net, train_data, val_data, ctx, args):
     """Training"""
