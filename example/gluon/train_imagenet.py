@@ -52,7 +52,7 @@ def parse_args():
                         help='list of learning rate decay epochs as in str')
     parser.add_argument('--dtype', default='float32', type=str,
                         help='data type, float32 or float16 if applicable')
-    parser.add_argument('--save-frequent', default=10, type=int,
+    parser.add_argument('--save-frequency', default=10, type=int,
                         help='model save frequent, best model will always be saved') 
     args = parser.parse_args()
     return args
