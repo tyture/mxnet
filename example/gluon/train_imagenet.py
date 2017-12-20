@@ -177,7 +177,7 @@ def train(net, train_data, val_data, ctx, args):
             logging.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1)
         if top1 > best_acc:
             best_acc = top1
-            fname = os.path.join(args.prefix, '%s_%d_best.params' % (args.model, epoch))
+            fname = os.path.join(args.prefix, '%s_best.params' % (args.model))
             net.save_params(fname)
             logging.info('[Epoch %d] Saving checkpoint to %s with Accuracy: %.4f', epoch, fname, top1) 
 
