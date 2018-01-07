@@ -22,11 +22,17 @@
 
 namespace mxnet {
 
-Imperative::CachedOp::CachedOp(const nnvm::Symbol& sym) {
+DMLC_REGISTER_PARAMETER(CachedOpParam);
+
+Imperative::CachedOp::CachedOp(
+    const nnvm::Symbol& sym,
+    const std::vector<std::pair<std::string, std::string> >& kwargs) {
   using namespace nnvm;
   using namespace imperative;
   static const std::vector<const Op*> zero_ops{Op::Get("zeros_like"), Op::Get("_zeros")};
   static const auto _copy = Op::Get("_copy");
+
+  param_.Init(kwargs);
 
   // construct forward graph
   {
@@ -59,6 +65,8 @@ Imperative::CachedOp::CachedOp(const nnvm::Symbol& sym) {
 
     fwd_graph_.attrs["forward_ref_count"] =
         std::make_shared<dmlc::any>(std::move(ref_count));
+
+    inlining_ = (idx.num_nodes() - idx.input_nodes().size()) <= param_.inline_limit;
   }
 
   // construct backward graph
@@ -136,7 +144,7 @@ std::vector<nnvm::NodeEntry> Imperative::CachedOp::Gradient(
     const std::vector<nnvm::NodeEntry>& ograds) {
   using namespace nnvm;
   static const auto _backward_CachedOp = Op::Get("_backward_CachedOp");
-  static const auto _CachedOp_NoGrad = Op::Get("_CachedOp_NoGrad");
+  static const auto _NoGrad = Op::Get("_NoGradient");
 
   auto p = Node::Create();
   p->attrs.op = _backward_CachedOp;
@@ -152,13 +160,12 @@ std::vector<nnvm::NodeEntry> Imperative::CachedOp::Gradient(
   const auto& auxs = mutable_input_nodes();
   if (auxs.size()) {
     auto nop = Node::Create();
-    nop->attrs.op = _CachedOp_NoGrad;
-    nop->attrs.parsed = static_cast<uint32_t>(auxs.size());
-    nop->control_deps.push_back(node);
-    uint32_t j = 0, k = 0;
+    nop->attrs.op = _NoGrad;
+    nop->attrs.name = "NoGradient";
+    uint32_t k = 0;
     for (const auto& i : fwd_graph_.indexed_graph().input_nodes()) {
       if (auxs.count(i)) {
-        ret.emplace_back(NodeEntry{nop, j++, 0});
+        ret.emplace_back(NodeEntry{nop, 0, 0});
       } else {
         ret.emplace_back(NodeEntry{p, k++, 0});
       }
@@ -322,13 +329,16 @@ nnvm::Graph Imperative::CachedOp::GetBackwardGraph(
   return g;
 }
 
-OpStatePtr Imperative::CachedOp::Forward(const std::vector<NDArray*>& inputs,
-                                         const std::vector<NDArray*>& outputs) {
+void Imperative::CachedOp::Forward(
+    const std::shared_ptr<CachedOp>& op_ptr,
+    const std::vector<NDArray*>& inputs,
+    const std::vector<NDArray*>& outputs) {
   using namespace nnvm;
   using namespace imperative;
+  static const auto cached_op = nnvm::Op::Get("_CachedOp");
 
-  bool recording = Imperative::Get()->set_is_recording(false);
   // Initialize
+  bool recording = Imperative::Get()->is_recording();
   nnvm::Graph g = GetForwardGraph(recording, inputs);
   const auto& idx = g.indexed_graph();
   size_t num_inputs = idx.input_nodes().size();
@@ -381,9 +391,16 @@ OpStatePtr Imperative::CachedOp::Forward(const std::vector<NDArray*>& inputs,
                  mem_plan, arrays, &array_reqs);
 
   const auto& dispatch_modes = g.GetAttr<DispatchModeVector>("dispatch_mode");
+
+  if (recording && !inlining_) Imperative::Get()->set_is_recording(false);
+  int prev_bulk_size = Engine::Get()->set_bulk_size(param_.forward_bulk_size);
+
   Imperative::Get()->RunGraph(
       false, idx, arrays, 0, idx.num_nodes(), std::move(array_reqs),
       std::move(ref_count), &states, dispatch_modes);
+
+  Engine::Get()->set_bulk_size(prev_bulk_size);
+  Imperative::Get()->set_is_recording(recording);
 
   for (size_t i = 0; i < idx.num_node_entries(); ++i) {
     if (arrays[i] == &buff[i]) continue;
@@ -392,9 +409,15 @@ OpStatePtr Imperative::CachedOp::Forward(const std::vector<NDArray*>& inputs,
     buff[i].storage_type_ = arrays[i]->storage_type_;
   }
 
-  Imperative::Get()->set_is_recording(recording);
-
-  return op_state_ptr;
+  if (recording && !inlining_) {
+    nnvm::NodeAttrs attrs;
+    attrs.op = cached_op;
+    attrs.name = "_cachedop";
+    attrs.parsed = op_ptr;
+    Imperative::Get()->RecordOp(
+        std::move(attrs), inputs, outputs, op_state_ptr,
+        &save_inputs(), &save_outputs());
+  }
 }
 
 
@@ -451,9 +474,14 @@ void Imperative::CachedOp::Backward(
                  mem_plan, arrays, &array_reqs);
 
   const auto& dispatch_modes = g.GetAttr<DispatchModeVector>("dispatch_mode");
+
+  int prev_bulk_size = Engine::Get()->set_bulk_size(param_.backward_bulk_size);
+
   Imperative::Get()->RunGraph(
       retain_graph, idx, arrays, num_forward_nodes, idx.num_nodes(),
       std::move(array_reqs), std::move(ref_count), &states, dispatch_modes);
+
+  Engine::Get()->set_bulk_size(prev_bulk_size);
 
   if (retain_graph) {
     buff.resize(num_forward_entries);
@@ -490,12 +518,5 @@ NNVM_REGISTER_OP(_backward_CachedOp)
   })
 .set_attr<bool>("TIsLayerOpBackward", true)
 .set_attr<bool>("TIsBackward", true);
-
-NNVM_REGISTER_OP(_CachedOp_NoGrad)
-.set_num_inputs(0)
-.set_num_outputs([](const NodeAttrs& attrs) {
-    const uint32_t& nout = nnvm::get<uint32_t>(attrs.parsed);
-    return nout;
-  });
 
 }  // namespace mxnet

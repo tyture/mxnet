@@ -20,13 +20,12 @@
 """Weight updating functions."""
 import math
 import pickle
-import logging
 import warnings
 import numpy
 from .base import py_str
 from .ndarray import (NDArray, zeros, clip, sqrt, cast, maximum, abs as NDabs)
 from .ndarray import (sgd_update, sgd_mom_update, adam_update, rmsprop_update, rmspropalex_update,
-                      mp_sgd_update, mp_sgd_mom_update, square, ftrl_update)
+                      mp_sgd_update, mp_sgd_mom_update, square, ftrl_update, ftml_update)
 from .ndarray import _internal
 from .ndarray import op
 from .ndarray import sparse
@@ -73,7 +72,7 @@ class Optimizer(object):
 
     Properties
     ----------
-    learning_rate: float
+    learning_rate : float
         The current learning rate of the optimizer. Given an Optimizer object
         optimizer, its learning rate can be accessed as optimizer.learning_rate.
     """
@@ -101,7 +100,7 @@ class Optimizer(object):
         assert isinstance(param_idx2name, dict), \
             'param_idx2name should be a dict of param indexes to names.'
         self.idx2name = param_idx2name.copy()
-        self.sym = sym
+        self.sym_info = (sym.attr_dict(), sym.list_arguments()) if sym is not None else ()
         self.param_dict = param_dict if param_dict else {}
 
         self.set_lr_mult({})
@@ -129,11 +128,10 @@ class Optimizer(object):
         assert(isinstance(klass, type))
         name = klass.__name__.lower()
         if name in Optimizer.opt_registry:
-            logging.warning('WARNING: New optimizer %s.%s is overriding '
-                            'existing optimizer %s.%s',
-                            klass.__module__, klass.__name__,
-                            Optimizer.opt_registry[name].__module__,
-                            Optimizer.opt_registry[name].__name__)
+            warnings.warn('WARNING: New optimizer %s.%s is overriding existing '
+                          'optimizer %s.%s', klass.__module__, klass.__name__,
+                          Optimizer.opt_registry[name].__module__,
+                          Optimizer.opt_registry[name].__name__)
         Optimizer.opt_registry[name] = klass
         return klass
 
@@ -321,9 +319,9 @@ class Optimizer(object):
             compatibility, and we recommend to use the name instead.
         """
         self.lr_mult = {}
-        if self.sym is not None:
-            attr = self.sym.attr_dict()
-            for name in self.sym.list_arguments():
+        if self.sym_info:
+            attr, arg_names = self.sym_info
+            for name in arg_names:
                 if name in attr and '__lr_mult__' in attr[name]:
                     self.lr_mult[name] = float(attr[name]['__lr_mult__'])
         self.lr_mult.update(args_lr_mult)
@@ -358,9 +356,9 @@ class Optimizer(object):
         for n in self.idx2name.values():
             if not (n.endswith('_weight') or n.endswith('_gamma')):
                 self.wd_mult[n] = 0.0
-        if self.sym is not None:
-            attr = self.sym.attr_dict()
-            for name in self.sym.list_arguments():
+        if self.sym_info:
+            attr, arg_names = self.sym_info
+            for name in arg_names:
                 if name in attr and '__wd_mult__' in attr[name]:
                     self.wd_mult[name] = float(attr[name]['__wd_mult__'])
         self.wd_mult.update(args_wd_mult)
@@ -435,19 +433,26 @@ register = Optimizer.register   # pylint: disable=invalid-name
 class SGD(Optimizer):
     """The SGD optimizer with momentum and weight decay.
 
-    The optimizer updates the weight by::
-
-        rescaled_grad = lr * rescale_grad * clip(grad, clip_gradient) + wd * weight
-        state = momentum * state + rescaled_grad
-        weight = weight - state
-
-    If the storage types of weight, state and grad are all ``row_sparse``, \
-    sparse updates are applied by::
+    If the storage types of weight and grad are both ``row_sparse``, and ``lazy_update`` is True, \
+    **lazy updates** are applied by::
 
         for row in grad.indices:
             rescaled_grad[row] = lr * rescale_grad * clip(grad[row], clip_gradient) + wd * weight[row]
             state[row] = momentum[row] * state[row] + rescaled_grad[row]
             weight[row] = weight[row] - state[row]
+
+    The sparse update only updates the momentum for the weights whose row_sparse
+    gradient indices appear in the current batch, rather than updating it for all
+    indices. Compared with the original update, it can provide large
+    improvements in model training throughput for some applications. However, it
+    provides slightly different semantics than the original update, and
+    may lead to different empirical results.
+
+    Otherwise, **standard updates** are applied by::
+
+        rescaled_grad = lr * rescale_grad * clip(grad, clip_gradient) + wd * weight
+        state = momentum * state + rescaled_grad
+        weight = weight - state
 
     For details of the update algorithm see
     :class:`~mxnet.ndarray.sgd_update` and :class:`~mxnet.ndarray.sgd_mom_update`.
@@ -459,6 +464,9 @@ class SGD(Optimizer):
     ----------
     momentum : float, optional
        The momentum value.
+    lazy_update : bool, optional
+       Default is True. If True, lazy updates are applied \
+       if the storage types of weight and grad are both ``row_sparse``.
     multi_precision: bool, optional
        Flag to control the internal precision of the optimizer.
        ``False`` results in using the same precision as the weights (default),
@@ -466,9 +474,10 @@ class SGD(Optimizer):
                 in 32-bit precision even if actual weights used in the model have lower precision.\
                 Turning this on can improve convergence and accuracy when training with float16.
     """
-    def __init__(self, momentum=0.0, **kwargs):
+    def __init__(self, momentum=0.0, lazy_update=True, **kwargs):
         super(SGD, self).__init__(**kwargs)
         self.momentum = momentum
+        self.lazy_update = lazy_update
 
     def create_state_multi_precision(self, index, weight):
         weight_master_copy = None
@@ -484,8 +493,9 @@ class SGD(Optimizer):
 
     def create_state(self, index, weight):
         momentum = None
+        stype = weight.stype if self.lazy_update else 'default'
         if self.momentum != 0.0:
-            momentum = zeros(weight.shape, weight.context, dtype=weight.dtype, stype=weight.stype)
+            momentum = zeros(weight.shape, weight.context, dtype=weight.dtype, stype=stype)
         return momentum
 
     def _update_impl(self, index, weight, grad, state, multi_precision=False):
@@ -523,6 +533,55 @@ class SGD(Optimizer):
         use_multi_precision = self.multi_precision and weight.dtype == numpy.float16
         self._update_impl(index, weight, grad, state,
                           multi_precision=use_multi_precision)
+
+
+@register
+class FTML(Optimizer):
+    """The FTML optimizer.
+
+    This class implements the optimizer described in
+    *FTML - Follow the Moving Leader in Deep Learning*,
+    available at http://proceedings.mlr.press/v70/zheng17a/zheng17a.pdf.
+
+    This optimizer accepts the following parameters in addition to those accepted
+    by :class:`.Optimizer`.
+
+    Parameters
+    ----------
+    beta1 : float, optional
+        0 < beta1 < 1. Generally close to 0.5.
+    beta2 : float, optional
+        0 < beta2 < 1. Generally close to 1.
+    epsilon : float, optional
+        Small value to avoid division by 0.
+    """
+    def __init__(self, beta1=0.6, beta2=0.999, epsilon=1e-8, **kwargs):
+        super(FTML, self).__init__(**kwargs)
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+
+    def create_state(self, index, weight):
+        return (zeros(weight.shape, weight.context, dtype=weight.dtype), # d_0
+                zeros(weight.shape, weight.context, dtype=weight.dtype), # v_0
+                zeros(weight.shape, weight.context, dtype=weight.dtype)) # z_0
+
+    def update(self, index, weight, grad, state):
+        assert(isinstance(weight, NDArray))
+        assert(isinstance(grad, NDArray))
+        self._update_count(index)
+        lr = self._get_lr(index)
+        wd = self._get_wd(index)
+        t = self._index_update_count[index]
+
+        kwargs = {'beta1': self.beta1, 'beta2': self.beta2, 'epsilon': self.epsilon,
+                  'rescale_grad': self.rescale_grad, 't': t}
+        if self.clip_gradient:
+            kwargs['clip_grad'] = self.clip_gradient
+
+        prev_d, prev_v, prev_z = state
+        ftml_update(weight, grad, prev_d, prev_v, prev_z, out=weight,
+                    lr=lr, wd=wd, **kwargs)
 
 # pylint: enable=line-too-long
 @register
@@ -643,7 +702,8 @@ class SGLD(Optimizer):
         if self.clip_gradient is not None:
             grad = clip(grad, -self.clip_gradient, self.clip_gradient)
         weight[:] += - lr/2 * (grad + wd * weight) + normal(0, math.sqrt(lr),
-                                                            weight.shape, weight.context)
+                                                            shape=weight.shape,
+                                                            ctx=weight.context)
 
 
 @register  # pylint: disable=invalid-name
@@ -667,13 +727,19 @@ class Adam(Optimizer):
         w = w - learning_rate * m / (sqrt(v) + epsilon)
 
     If the storage types of weight, state and grad are all ``row_sparse``, \
-    sparse updates are applied by::
+    **sparse updates** are applied by::
 
         for row in grad.indices:
             rescaled_grad[row] = clip(grad[row] * rescale_grad + wd * weight[row], clip_gradient)
             m[row] = beta1 * m[row] + (1 - beta1) * rescaled_grad[row]
             v[row] = beta2 * v[row] + (1 - beta2) * (rescaled_grad[row]**2)
             w[row] = w[row] - learning_rate * m[row] / (sqrt(v[row]) + epsilon)
+
+    The sparse update only updates the mean and var for the weights whose row_sparse
+    gradient indices appear in the current batch, rather than updating it for all indices.
+    Compared with the original update, it can provide large improvements in model training
+    throughput for some applications. However, it provides slightly different semantics than
+    the original update, and may lead to different empirical results.
 
     This optimizer accepts the following parameters in addition to those accepted
     by :class:`.Optimizer`.
@@ -780,9 +846,9 @@ class AdaGrad(Optimizer):
             srt = op.sqrt(adjusted_add)
             div = _internal._scatter_elemwise_div(grad, srt)
             retained_weight = sparse.retain(weight, grad.indices)
-            to_add = sparse.elemwise_add(div, _internal._mul_scalar(retained_weight, wd))
+            to_add = sparse.elemwise_add(div, _internal._mul_scalar(retained_weight, float(wd)))
             assert len(to_add.indices) == grad_indices_count
-            weight[:] = sparse.elemwise_add(weight, _internal._mul_scalar(to_add, -lr))
+            weight[:] = sparse.elemwise_add(weight, _internal._mul_scalar(to_add, float(-lr)))
             state[:] = history
             assert state.stype == save_history_stype
             assert len(history_indices) == grad_indices_count
@@ -936,13 +1002,20 @@ class Ftrl(Optimizer):
         w = (sign(z) * lamda1 - z) / ((beta + sqrt(n)) / learning_rate + wd) * (abs(z) > lamda1)
 
     If the storage types of weight, state and grad are all ``row_sparse``, \
-    sparse updates are applied by::
+    **sparse updates** are applied by::
 
         for row in grad.indices:
             rescaled_grad[row] = clip(grad[row] * rescale_grad, clip_gradient)
             z[row] += rescaled_grad[row] - (sqrt(n[row] + rescaled_grad[row]**2) - sqrt(n[row])) * weight[row] / learning_rate
             n[row] += rescaled_grad[row]**2
             w[row] = (sign(z[row]) * lamda1 - z[row]) / ((beta + sqrt(n[row])) / learning_rate + wd) * (abs(z[row]) > lamda1)
+
+    The sparse update only updates the z and n for the weights whose row_sparse
+    gradient indices appear in the current batch, rather than updating it for all
+    indices. Compared with the original update, it can provide large
+    improvements in model training throughput for some applications. However, it
+    provides slightly different semantics than the original update, and
+    may lead to different empirical results.
 
     For details of the update algorithm, see :class:`~mxnet.ndarray.ftrl_update`.
 
@@ -1080,7 +1153,7 @@ class Nadam(Optimizer):
         t = self._index_update_count[index]
 
         # preprocess grad
-        grad *= self.rescale_grad + wd * weight
+        grad = grad * self.rescale_grad + wd * weight
         if self.clip_gradient is not None:
             grad = clip(grad, -self.clip_gradient, self.clip_gradient)
 
